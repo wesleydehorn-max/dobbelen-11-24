@@ -126,7 +126,7 @@ function action(r,p,a,index){
 
   if(a==="hold"){
     if(r.phase!=="main")throw Error("Dit kan nu niet.");
-    const i=arguments[2];
+    const i=index;
     if(r.held[i])return;
     r.held[i]=true;
     r.message="VAST — je kunt opnieuw gooien.";
