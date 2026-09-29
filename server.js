@@ -6,70 +6,135 @@ const PORT = process.env.PORT || 3000;
 const rooms = new Map();
 const sessions = new Map();
 
-/* =========================================================
-   BASIS
-========================================================= */
-
-function uid() {
+function id() {
   return crypto.randomBytes(12).toString("hex");
 }
 
-function makeRoomCode() {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+function cleanName(name) {
+  return String(name || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, 20);
+}
+
+function cleanCode(code) {
+  return String(code || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 6);
+}
+
+function makeCode() {
   let code;
 
   do {
-    code = "";
-    for (let i = 0; i < 6; i++) {
-      code += chars[Math.floor(Math.random() * chars.length)];
-    }
+    code = Math.random()
+      .toString(36)
+      .slice(2, 8)
+      .toUpperCase();
   } while (rooms.has(code));
 
   return code;
 }
 
-function die() {
-  return Math.floor(Math.random() * 6) + 1;
+function activePlayers(room) {
+  return room.players.filter(function (p) {
+    return !p.removed;
+  });
 }
 
-function fiveDice() {
-  return [die(), die(), die(), die(), die()];
+function findPlayer(room, playerId) {
+  return room.players.find(function (p) {
+    return p.id === playerId && !p.removed;
+  });
 }
 
-function cleanName(value) {
-  const name = String(value || "")
-    .trim()
-    .replace(/\s+/g, " ");
+function newRoom(name) {
+  const player = {
+    id: id(),
+    name: cleanName(name),
+    money: 100,
+    removed: false
+  };
 
-  if (!name) throw new Error("Vul een naam in.");
-  if (name.length > 20) {
-    throw new Error("Naam mag maximaal 20 tekens zijn.");
+  const room = {
+    code: makeCode(),
+
+    players: [player],
+
+    admin: player.id,
+
+    started: false,
+
+    current: 0,
+
+    phase: "lobby",
+
+    dice: [null, null, null, null, null],
+
+    held: [false, false, false, false, false],
+
+    settled: [false, false, false, false, false],
+
+    hasRolled: false,
+
+    mustHold: false,
+
+    target: null,
+
+    mode: null,
+
+    needFreshRoll: false,
+
+    banner: "🎰 Wacht op spelers...",
+
+    version: 1,
+
+    rollSeq: 0,
+
+    log: [],
+
+    chat: []
+  };
+
+  rooms.set(room.code, room);
+
+  return room;
+}
+
+function joinRoom(code, name) {
+  const room = rooms.get(cleanCode(code));
+
+  if (!room) {
+    throw new Error("Kamer bestaat niet.");
   }
 
-  return name;
-}
+  if (room.started) {
+    throw new Error("Dit spel is al gestart.");
+  }
 
-function cleanCode(value) {
-  return String(value || "")
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "");
-}
+  if (activePlayers(room).length >= 4) {
+    throw new Error("Deze kamer zit vol.");
+  }
 
-function active(room) {
-  return room.players.filter(function (p) {
-    return p.active;
-  });
-}
+  const player = {
+    id: id(),
+    name: cleanName(name),
+    money: 100,
+    removed: false
+  };
 
-function current(room) {
-  return room.players[room.current];
-}
+  room.players.push(player);
 
-function playerIndex(room, id) {
-  return room.players.findIndex(function (p) {
-    return p.id === id;
-  });
+  room.banner = "🎰 Klaar om te spelen!";
+
+  bump(room);
+
+  return {
+    room: room,
+    player: player
+  };
 }
 
 function bump(room) {
@@ -77,24 +142,31 @@ function bump(room) {
 }
 
 function addLog(room, text) {
-  room.log.unshift({
-    text: text,
-    time: new Date().toLocaleTimeString("nl-NL", {
-      hour: "2-digit",
-      minute: "2-digit"
-    })
-  });
+  room.log.unshift(text);
 
-  room.log = room.log.slice(0, 30);
+  room.log = room.log.slice(0, 40);
 }
 
-/* =========================================================
-   BEURT
-========================================================= */
+function addChat(room, player, text) {
+  const clean = String(text || "")
+    .trim()
+    .slice(0, 160);
+
+  if (!clean) {
+    return;
+  }
+
+  room.chat.push({
+    id: id(),
+    name: player.name,
+    text: clean,
+    at: Date.now()
+  });
+
+  room.chat = room.chat.slice(-50);
+}
 
 function resetTurn(room) {
-  room.phase = "main";
-
   room.dice = [
     null,
     null,
@@ -120,275 +192,449 @@ function resetTurn(room) {
   ];
 
   room.hasRolled = false;
+
   room.mustHold = false;
+
   room.target = null;
+
   room.mode = null;
+
   room.needFreshRoll = false;
 
-  room.rollSeq++;
+  room.phase = "main";
 }
-
-function nextPlayer(room) {
-  for (let i = 1; i <= room.players.length; i++) {
-    const index =
-      (room.current + i) % room.players.length;
-
-    if (
-      room.players[index] &&
-      room.players[index].active
-    ) {
-      room.current = index;
-      return;
-    }
-  }
-}
-
-function finishTurn(room) {
-  nextPlayer(room);
-  resetTurn(room);
-
-  const p = current(room);
-
-  if (p) {
-    room.banner =
-      "🎰 " +
-      p.name +
-      " is aan de beurt — druk op BEGIN WORP.";
-  }
-
-  bump(room);
-}
-
-/* =========================================================
-   START SPEL
-========================================================= */
 
 function startGame(room) {
-  if (active(room).length < 2) {
-    throw new Error(
-      "Er moeten minimaal 2 spelers zijn."
-    );
+  const players = activePlayers(room);
+
+  if (players.length < 2) {
+    throw new Error("Minimaal 2 spelers nodig.");
   }
 
-  /* ALTIJD €100 BIJ NIEUW SPEL */
-  room.players.forEach(function (p) {
-    if (p.active) {
-      p.money = 100;
-    }
+  if (room.started) {
+    throw new Error("Het spel is al gestart.");
+  }
+
+  players.forEach(function (p) {
+    p.money = 100;
   });
 
   room.started = true;
 
-  room.current =
-    room.players.findIndex(function (p) {
-      return p.active;
-    });
+  room.current = 0;
+
+  room.phase = "main";
+
+  room.banner = "🎲 Jouw beurt! Gooi de dobbelstenen.";
+
+  room.log = [];
+
+  room.chat = [];
 
   resetTurn(room);
 
-  const p = current(room);
-
-  room.banner =
-    "🎰 " +
-    p.name +
-    " is aan de beurt — druk op BEGIN WORP.";
-
   addLog(
     room,
-    "🎰 Het spel is gestart. Iedereen begint met €100,00."
+    "🎰 Het spel is gestart met " +
+      players.length +
+      " spelers."
   );
 
   bump(room);
 }
 
-/* =========================================================
-   DOEL
-========================================================= */
+function nextPlayer(room) {
+  const players = activePlayers(room);
 
-function targetFor(total) {
-  if (total === 11 || total === 24) {
-    return {
-      special: true,
-      target: total
-    };
+  if (!players.length) {
+    return;
   }
 
-  if (total >= 12 && total <= 17) {
-    return {
-      target: total - 11,
-      mode: "earn"
-    };
+  const currentIndex = room.current;
+
+  for (let i = 1; i <= players.length; i++) {
+    const next =
+      (currentIndex + i) % players.length;
+
+    if (players[next]) {
+      room.current = next;
+      break;
+    }
   }
 
-  if (total >= 18 && total <= 23) {
-    return {
-      target: 24 - total,
-      mode: "pay"
-    };
-  }
+  resetTurn(room);
 
-  if (total < 11) {
-    return {
-      target: 11 - total,
-      mode: "earn"
-    };
-  }
+  room.banner =
+    "🎲 " +
+    players[room.current].name +
+    " is aan de beurt.";
 
-  return {
-    target: total - 24,
-    mode: "earn"
-  };
+  bump(room);
 }
 
-function fiveOfKind(dice) {
-  return (
-    dice.every(function (v) {
-      return v !== null;
-    }) &&
-    dice.every(function (v) {
-      return v === dice[0];
-    })
+function rollDie() {
+  return Math.floor(Math.random() * 6) + 1;
+}
+
+function rollLoose(room) {
+  for (let i = 0; i < 5; i++) {
+    if (!room.held[i]) {
+      room.dice[i] = rollDie();
+    }
+  }
+}
+
+function allHeld(room) {
+  return room.held.every(Boolean);
+}
+
+function countValue(dice, value) {
+  return dice.filter(function (v) {
+    return v === value;
+  }).length;
+}
+
+function total(dice) {
+  return dice.reduce(function (sum, v) {
+    return sum + (Number(v) || 0);
+  }, 0);
+}
+
+function distribute(room, currentPlayer, amount, earning) {
+  const players = activePlayers(room);
+
+  for (const p of players) {
+    if (p.id === currentPlayer.id) {
+      continue;
+    }
+
+    if (earning) {
+      p.money -= amount;
+      currentPlayer.money += amount;
+    } else {
+      p.money += amount;
+      currentPlayer.money -= amount;
+    }
+  }
+}
+
+function beginRoll(room) {
+  room.dice = [
+    rollDie(),
+    rollDie(),
+    rollDie(),
+    rollDie(),
+    rollDie()
+  ];
+
+  room.held = [
+    false,
+    false,
+    false,
+    false,
+    false
+  ];
+
+  room.settled = [
+    false,
+    false,
+    false,
+    false,
+    false
+  ];
+
+  room.hasRolled = true;
+
+  room.mustHold = false;
+
+  room.rollSeq++;
+
+  room.banner =
+    "🎲 Kies minimaal 1 nieuwe steen om vast te zetten.";
+
+  addLog(
+    room,
+    "🎲 " +
+      activePlayers(room)[room.current].name +
+      " heeft gegooid: " +
+      room.dice.join(", ") +
+      "."
   );
 }
 
-/* =========================================================
-   GELD
-========================================================= */
+function rerollMain(room) {
+  if (!room.hasRolled) {
+    throw new Error("Je moet eerst gooien.");
+  }
 
-function transfer(room, player, amount, mode) {
-  const others = active(room).filter(function (p) {
-    return p.id !== player.id;
-  });
+  if (room.mustHold) {
+    throw new Error(
+      "Zet eerst minimaal 1 nieuwe dobbelsteen vast."
+    );
+  }
 
-  others.forEach(function (other) {
-    if (mode === "earn") {
-      other.money -= amount;
-      player.money += amount;
-    } else {
-      player.money -= amount;
-      other.money += amount;
-    }
-  });
+  if (allHeld(room)) {
+    throw new Error(
+      "Alle dobbelstenen staan al vast."
+    );
+  }
 
-  if (mode === "earn") {
+  rollLoose(room);
+
+  room.mustHold = true;
+
+  room.rollSeq++;
+
+  room.banner =
+    "🎲 Zet minimaal 1 nieuwe steen vast voor de volgende worp.";
+}
+
+function finishSpecial(room, player, sum) {
+  if (sum === 11 || sum === 24) {
+    distribute(
+      room,
+      player,
+      0.5,
+      false
+    );
+
+    room.banner =
+      "💰 " +
+      player.name +
+      " heeft " +
+      sum +
+      "! €0,50 naar iedere tegenstander.";
+
     addLog(
       room,
       "💰 " +
         player.name +
-        " verdient €" +
-        amount.toFixed(2) +
-        " van iedere tegenstander."
+        " gooide " +
+        sum +
+        " en betaalt €0,50 aan iedere tegenstander."
     );
-  } else {
-    addLog(
-      room,
-      "💸 " +
-        player.name +
-        " betaalt €" +
-        amount.toFixed(2) +
-        " aan iedere tegenstander."
-    );
+
+    nextPlayer(room);
+
+    return true;
   }
+
+  return false;
 }
 
-/* =========================================================
-   HOOFDWORP
-========================================================= */
+function acceptMain(room, player) {
+  if (!room.hasRolled) {
+    throw new Error("Je moet eerst gooien.");
+  }
 
-function resolveMain(room) {
-  const player = current(room);
+  if (room.mustHold) {
+    throw new Error(
+      "Zet eerst minimaal 1 nieuwe steen vast."
+    );
+  }
 
-  const total = room.dice.reduce(function (sum, value) {
-    return sum + value;
-  }, 0);
+  const sum = total(room.dice);
 
-  /* VOLLE BAK */
-  if (fiveOfKind(room.dice)) {
+  if (finishSpecial(room, player, sum)) {
+    return;
+  }
+
+  if (countValue(room.dice, 6) === 5) {
+    room.phase = "earnpay";
+
     room.target = 6;
+
     room.mode = "earn";
-    room.phase = "earn";
-
-    room.held = [true, true, true, true, true];
-    room.settled = [true, true, true, true, true];
-
-    transfer(room, player, 25, "earn");
 
     room.needFreshRoll = true;
 
-    room.banner =
-      "🔥 VOLLE BAK! " +
-      player.name +
-      " verdient €25,00.";
+    room.held = [
+      true,
+      true,
+      true,
+      true,
+      true
+    ];
 
-    bump(room);
-    return;
-  }
-
-  const result = targetFor(total);
-
-  /* 11 / 24 */
-  if (result.special) {
-    active(room)
-      .filter(function (p) {
-        return p.id !== player.id;
-      })
-      .forEach(function (other) {
-        player.money -= 0.50;
-        other.money += 0.50;
-      });
+    room.settled = [
+      true,
+      true,
+      true,
+      true,
+      true
+    ];
 
     room.banner =
-      "🎯 " +
-      result.target +
-      " — €0,50 naar iedere tegenstander.";
+      "🎰 VOLLE BAK! Verdienen met 6'en.";
 
-    addLog(room, room.banner);
-
-    finishTurn(room);
-    return;
-  }
-
-  room.target = result.target;
-  room.mode = result.mode;
-  room.phase = result.mode;
-
-  room.settled = room.dice.map(function (v) {
-    return v === result.target;
-  });
-
-  room.held = room.settled.slice();
-
-  const count =
-    room.settled.filter(Boolean).length;
-
-  if (count > 0) {
-    transfer(
+    addLog(
       room,
-      player,
-      count * 5,
-      result.mode
+      "🎰 VOLLE BAK! " +
+        player.name +
+        " gaat verdienen met 6'en."
     );
+
+    return;
   }
+
+  if (sum >= 11 && sum <= 17) {
+    room.target = 11;
+
+    room.mode = "earn";
+
+    room.phase = "earnpay";
+
+    room.needFreshRoll = true;
+
+    room.held = [
+      true,
+      true,
+      true,
+      true,
+      true
+    ];
+
+    room.settled = [
+      true,
+      true,
+      true,
+      true,
+      true
+    ];
+
+    room.banner =
+      "💰 VERDIENEN: 11 – gooi voor 11'en.";
+
+    addLog(
+      room,
+      "💰 " +
+        player.name +
+        " kiest verdienen richting 11."
+    );
+
+    return;
+  }
+
+  if (sum >= 18 && sum <= 24) {
+    room.target = 24;
+
+    room.mode = "earn";
+
+    room.phase = "earnpay";
+
+    room.needFreshRoll = true;
+
+    room.held = [
+      true,
+      true,
+      true,
+      true,
+      true
+    ];
+
+    room.settled = [
+      true,
+      true,
+      true,
+      true,
+      true
+    ];
+
+    room.banner =
+      "💰 VERDIENEN: 24 – gooi voor 24'en.";
+
+    addLog(
+      room,
+      "💰 " +
+        player.name +
+        " kiest verdienen richting 24."
+    );
+
+    return;
+  }
+
+  if (sum < 11) {
+    room.target = 11;
+
+    room.mode = "earn";
+
+    room.phase = "earnpay";
+
+    room.needFreshRoll = true;
+
+    room.held = [
+      true,
+      true,
+      true,
+      true,
+      true
+    ];
+
+    room.settled = [
+      true,
+      true,
+      true,
+      true,
+      true
+    ];
+
+    room.banner =
+      "💰 VERDIENEN: 11'en.";
+
+    addLog(
+      room,
+      "💰 " +
+        player.name +
+        " gaat verdienen met 11'en."
+    );
+
+    return;
+  }
+
+  room.target = 24;
+
+  room.mode = "pay";
+
+  room.phase = "earnpay";
+
+  room.needFreshRoll = true;
+
+  room.held = [
+    true,
+    true,
+    true,
+    true,
+    true
+  ];
+
+  room.settled = [
+    true,
+    true,
+    true,
+    true,
+    true
+  ];
 
   room.banner =
-    (result.mode === "earn"
-      ? "💰 VERDIENEN: "
-      : "💸 BETALEN: ") +
-    result.target +
-    "'EN";
+    "💸 BETALEN: 24'en.";
 
-  bump(room);
+  addLog(
+    room,
+    "💸 " +
+      player.name +
+      " gaat betalen met 24'en."
+  );
 }
 
-/* =========================================================
-   VERDIENEN / BETALEN
-========================================================= */
-
-function resolveEarnPay(room) {
-  const player = current(room);
-
+function resolveEarnPay(room, player) {
   if (room.needFreshRoll) {
-    room.dice = fiveDice();
+    room.dice = [
+      rollDie(),
+      rollDie(),
+      rollDie(),
+      rollDie(),
+      rollDie()
+    ];
 
     room.held = [
       false,
@@ -408,444 +654,114 @@ function resolveEarnPay(room) {
 
     room.needFreshRoll = false;
   } else {
-    room.dice = room.dice.map(function (value, index) {
-      return room.settled[index]
-        ? value
-        : die();
-    });
+    rollLoose(room);
   }
 
-  const found = room.dice.map(function (value, index) {
-    return (
-      !room.settled[index] &&
-      value === room.target
-    );
-  });
+  room.rollSeq++;
 
-  /* MIS */
-  if (!found.some(Boolean)) {
+  const target = room.target;
+
+  const hits = [];
+
+  for (let i = 0; i < 5; i++) {
+    if (room.dice[i] === target) {
+      hits.push(i);
+    }
+  }
+
+  if (!hits.length) {
     room.banner =
-      "❌ MIS — geen " +
-      room.target +
-      " gegooid.";
+      "❌ MIS! Geen " +
+      target +
+      ". De beurt gaat door naar de volgende speler.";
 
-    finishTurn(room);
+    addLog(
+      room,
+      "❌ " +
+        player.name +
+        " had geen " +
+        target +
+        " en mist."
+    );
+
+    nextPlayer(room);
+
     return;
   }
 
-  const count =
-    found.filter(Boolean).length;
+  const amount = hits.length * 5;
 
-  found.forEach(function (yes, index) {
-    if (yes) {
-      room.settled[index] = true;
-      room.held[index] = true;
-    }
-  });
-
-  transfer(
+  distribute(
     room,
     player,
-    count * 5,
-    room.mode
+    amount,
+    room.mode === "earn"
   );
 
-  room.banner =
-    (room.mode === "earn"
-      ? "💰 VERDIENEN: "
-      : "💸 BETALEN: ") +
-    room.target +
-    "'EN — " +
-    count +
-    " doelsteen" +
-    (count === 1 ? "" : "en");
-
-  if (
-    room.settled.every(function (v) {
-      return v;
-    })
-  ) {
-    room.needFreshRoll = true;
-  }
-
-  bump(room);
-}
-
-/* =========================================================
-   ACTIES
-========================================================= */
-
-function doAction(room, player, body) {
-  const action = body.action;
-  const index = playerIndex(room, player.id);
-
-  if (action === "start") {
-    if (player.id !== room.admin) {
-      throw new Error(
-        "Alleen de beheerder kan het spel starten."
-      );
-    }
-
-    startGame(room);
-    return;
-  }
-
-  if (action === "chat") {
-    const text =
-      String(body.text || "")
-        .trim()
-        .slice(0, 200);
-
-    if (text) {
-      room.chat.push({
-        player: player.name,
-        text: text,
-        time: new Date().toLocaleTimeString(
-          "nl-NL",
-          {
-            hour: "2-digit",
-            minute: "2-digit"
-          }
-        )
-      });
-
-      room.chat = room.chat.slice(-50);
-
-      bump(room);
-    }
-
-    return;
-  }
-
-  if (!room.started) {
-    throw new Error(
-      "Het spel is nog niet gestart."
-    );
-  }
-
-  if (room.current !== index) {
-    throw new Error(
-      "Het is niet jouw beurt."
-    );
-  }
-
-  /* BEGIN WORP */
-  if (action === "begin") {
-    if (
-      room.phase !== "main" ||
-      room.hasRolled
-    ) {
-      throw new Error(
-        "Je kunt nu niet beginnen."
-      );
-    }
-
-    room.dice = fiveDice();
-
-    room.hasRolled = true;
-    room.mustHold = true;
-    room.rollSeq++;
-
-    bump(room);
-    return;
-  }
-
-  /* VASTZETTEN */
-  if (action === "hold") {
-    const i = Number(body.index);
-
-    if (
-      room.phase !== "main" ||
-      !room.hasRolled ||
-      !Number.isInteger(i) ||
-      i < 0 ||
-      i > 4 ||
-      room.held[i]
-    ) {
-      throw new Error(
-        "Ongeldige dobbelsteen."
-      );
-    }
-
+  hits.forEach(function (i) {
     room.held[i] = true;
-
-    /*
-      Minimaal één nieuwe steen
-      is nu vastgezet.
-    */
-    room.mustHold = false;
-
-    bump(room);
-    return;
-  }
-
-  /* OPNIEUW GOOIEN */
-  if (action === "reroll") {
-    if (
-      room.phase !== "main" ||
-      !room.hasRolled
-    ) {
-      throw new Error(
-        "Je kunt nu niet opnieuw gooien."
-      );
-    }
-
-    if (room.mustHold) {
-      throw new Error(
-        "Je moet eerst minimaal één nieuwe dobbelsteen vasthouden."
-      );
-    }
-
-    if (
-      room.held.every(function (v) {
-        return v;
-      })
-    ) {
-      throw new Error(
-        "Alle dobbelstenen staan vast."
-      );
-    }
-
-    room.dice = room.dice.map(function (value, i) {
-      return room.held[i]
-        ? value
-        : die();
-    });
-
-    room.mustHold = true;
-    room.rollSeq++;
-
-    bump(room);
-    return;
-  }
-
-  /* AKKOORD */
-  if (action === "accept") {
-    if (
-      room.phase !== "main" ||
-      !room.hasRolled
-    ) {
-      throw new Error(
-        "Je kunt nu niet akkoord geven."
-      );
-    }
-
-    resolveMain(room);
-    return;
-  }
-
-  /* VERDIENEN / BETALEN */
-  if (action === "roundRoll") {
-    if (
-      room.phase !== "earn" &&
-      room.phase !== "pay"
-    ) {
-      throw new Error(
-        "Je kunt nu niet gooien."
-      );
-    }
-
-    resolveEarnPay(room);
-    return;
-  }
-
-  throw new Error(
-    "Onbekende actie."
-  );
-}
-
-/* =========================================================
-   KAMER MAKEN
-========================================================= */
-
-function createRoom(name) {
-  const code = makeRoomCode();
-
-  const player = {
-    id: uid(),
-    name: name,
-    money: 100,
-    active: true
-  };
-
-  const room = {
-    code: code,
-
-    players: [player],
-
-    admin: player.id,
-
-    started: false,
-
-    current: 0,
-
-    phase: "lobby",
-
-    dice: [
-      null,
-      null,
-      null,
-      null,
-      null
-    ],
-
-    held: [
-      false,
-      false,
-      false,
-      false,
-      false
-    ],
-
-    settled: [
-      false,
-      false,
-      false,
-      false,
-      false
-    ],
-
-    hasRolled: false,
-
-    mustHold: false,
-
-    target: null,
-
-    mode: null,
-
-    needFreshRoll: false,
-
-    banner:
-      "🎰 Wacht op spelers...",
-
-    version: 1,
-
-    rollSeq: 0,
-
-    log: [],
-
-    chat: []
-  };
-
-  rooms.set(code, room);
-
-  return {
-    room: room,
-    player: player
-  };
-}
-
-/* =========================================================
-   JOIN
-========================================================= */
-
-function joinRoom(code, name) {
-  const room = rooms.get(code);
-
-  if (!room) {
-    throw new Error(
-      "Kamer niet gevonden."
-    );
-  }
-
-  if (room.started) {
-    throw new Error(
-      "Dit spel is al gestart."
-    );
-  }
-
-  if (active(room).length >= 4) {
-    throw new Error(
-      "Deze tafel zit vol."
-    );
-  }
-
-  const player = {
-    id: uid(),
-    name: name,
-    money: 100,
-    active: true
-  };
-
-  room.players.push(player);
-
-  addLog(
-    room,
-    "🎩 " +
-      player.name +
-      " is aan tafel gekomen."
-  );
-
-  bump(room);
-
-  return {
-    room: room,
-    player: player
-  };
-}
-
-/* =========================================================
-   SESSION
-========================================================= */
-
-function createSession(roomCode, playerId) {
-  const sid = uid();
-
-  sessions.set(sid, {
-    roomCode: roomCode,
-    playerId: playerId
+    room.settled[i] = true;
   });
 
-  return sid;
-}
+  if (room.mode === "earn") {
+    room.banner =
+      "💰 +€" +
+      amount.toFixed(2) +
+      " — " +
+      hits.length +
+      "× " +
+      target +
+      ".";
 
-function getSession(req) {
-  const cookies =
-    String(req.headers.cookie || "")
-      .split(";");
+    addLog(
+      room,
+      "💰 " +
+        player.name +
+        " verdient €" +
+        amount.toFixed(2) +
+        " met " +
+        hits.length +
+        "× " +
+        target +
+        "."
+    );
+  } else {
+    room.banner =
+      "💸 -€" +
+      amount.toFixed(2) +
+      " — " +
+      hits.length +
+      "× " +
+      target +
+      ".";
 
-  for (let i = 0; i < cookies.length; i++) {
-    const part = cookies[i].trim();
-
-    if (part.indexOf("sid=") === 0) {
-      return sessions.get(
-        part.substring(4)
-      ) || null;
-    }
+    addLog(
+      room,
+      "💸 " +
+        player.name +
+        " betaalt €" +
+        amount.toFixed(2) +
+        " voor " +
+        hits.length +
+        "× " +
+        target +
+        "."
+    );
   }
 
-  return null;
+  if (hits.length === 5) {
+    room.needFreshRoll = true;
+
+    room.banner +=
+      " 🎰 VOLLE BAK — nieuwe set van 5.";
+  }
 }
-
-function getRoomPlayer(req) {
-  const session = getSession(req);
-
-  if (!session) return null;
-
-  const room =
-    rooms.get(session.roomCode);
-
-  if (!room) return null;
-
-  const player =
-    room.players.find(function (p) {
-      return p.id === session.playerId;
-    });
-
-  if (!player) return null;
-
-  return {
-    room: room,
-    player: player
-  };
-}
-
-/* =========================================================
-   PUBLIC STATE
-========================================================= */
 
 function publicState(room, me) {
-  const cp = current(room);
+  const players = activePlayers(room);
+
+  const currentPlayer =
+    players[room.current] || null;
 
   return {
     room: {
@@ -856,17 +772,16 @@ function publicState(room, me) {
       canStart:
         !room.started &&
         me.id === room.admin &&
-        active(room).length >= 2,
+        players.length >= 2,
 
-      playerCount:
-        active(room).length,
+      playerCount: players.length,
 
       maxPlayers: 4,
 
-      current: cp
+      current: currentPlayer
         ? {
-            id: cp.id,
-            name: cp.name
+            id: currentPlayer.id,
+            name: currentPlayer.name
           }
         : null,
 
@@ -886,8 +801,7 @@ function publicState(room, me) {
 
       mode: room.mode,
 
-      needFreshRoll:
-        room.needFreshRoll,
+      needFreshRoll: room.needFreshRoll,
 
       banner: room.banner,
 
@@ -900,33 +814,311 @@ function publicState(room, me) {
       chat: room.chat
     },
 
-    players:
-      room.players.map(function (p) {
-        return {
-          id: p.id,
-          name: p.name,
-          money:
-            Number(p.money.toFixed(2)),
-          active: p.active,
-          isAdmin:
-            p.id === room.admin
-        };
-      }),
+    players: players.map(function (p) {
+      return {
+        id: p.id,
+        name: p.name,
+        money: p.money,
+        isAdmin: p.id === room.admin
+      };
+    }),
 
     me: {
       id: me.id,
       name: me.name,
-      money:
-        Number(me.money.toFixed(2)),
-      isAdmin:
-        me.id === room.admin
+      money: me.money,
+      isAdmin: me.id === room.admin
     }
   };
 }
 
-/* =========================================================
-   WEBSITE
-========================================================= */
+function json(res, status, data) {
+  res.writeHead(status, {
+    "Content-Type":
+      "application/json; charset=utf-8",
+
+    "Cache-Control":
+      "no-store",
+
+    "Access-Control-Allow-Origin":
+      "*"
+  });
+
+  res.end(JSON.stringify(data));
+}
+
+function parseBody(req) {
+  return new Promise(function (resolve, reject) {
+    let body = "";
+
+    req.on("data", function (chunk) {
+      body += chunk;
+
+      if (body.length > 100000) {
+        req.destroy();
+      }
+    });
+
+    req.on("end", function () {
+      try {
+        resolve(
+          body
+            ? JSON.parse(body)
+            : {}
+        );
+      } catch (e) {
+        reject(
+          new Error(
+            "Ongeldige aanvraag."
+          )
+        );
+      }
+    });
+
+    req.on("error", reject);
+  });
+}
+
+function cookieSession(req, res) {
+  const cookie =
+    req.headers.cookie || "";
+
+  const match =
+    cookie.match(/sid=([^;]+)/);
+
+  let sid =
+    match
+      ? match[1]
+      : null;
+
+  let session =
+    sid
+      ? sessions.get(sid)
+      : null;
+
+  if (!session) {
+    sid = id();
+
+    session = {};
+
+    sessions.set(
+      sid,
+      session
+    );
+
+    res.setHeader(
+      "Set-Cookie",
+      "sid=" +
+        sid +
+        "; Path=/; HttpOnly; SameSite=Lax"
+    );
+  }
+
+  return session;
+}
+
+function action(
+  room,
+  player,
+  type,
+  data
+) {
+  const players =
+    activePlayers(room);
+
+  const current =
+    players[room.current];
+
+  if (type === "start") {
+    if (player.id !== room.admin) {
+      throw new Error(
+        "Alleen de beheerder kan starten."
+      );
+    }
+
+    startGame(room);
+
+    return;
+  }
+
+  if (type === "chat") {
+    addChat(
+      room,
+      player,
+      data && data.text
+    );
+
+    bump(room);
+
+    return;
+  }
+
+  if (type === "remove") {
+    if (player.id !== room.admin) {
+      throw new Error(
+        "Alleen de beheerder kan spelers verwijderen."
+      );
+    }
+
+    const target =
+      room.players.find(function (p) {
+        return (
+          p.id ===
+            String(
+              data &&
+                data.playerId
+            )
+        );
+      });
+
+    if (
+      !target ||
+      target.id === room.admin
+    ) {
+      throw new Error(
+        "Speler kan niet worden verwijderd."
+      );
+    }
+
+    target.removed = true;
+
+    if (
+      room.started &&
+      room.current >=
+        activePlayers(room).length
+    ) {
+      room.current = 0;
+    }
+
+    room.banner =
+      "👋 " +
+      target.name +
+      " is verwijderd uit de tafel.";
+
+    bump(room);
+
+    return;
+  }
+
+  if (!room.started) {
+    throw new Error(
+      "Het spel is nog niet gestart."
+    );
+  }
+
+  if (
+    !current ||
+    current.id !== player.id
+  ) {
+    throw new Error(
+      "Het is niet jouw beurt."
+    );
+  }
+
+  if (type === "roll") {
+    if (room.phase === "main") {
+      if (!room.hasRolled) {
+        beginRoll(room);
+      } else {
+        rerollMain(room);
+      }
+
+      bump(room);
+
+      return;
+    }
+
+    if (
+      room.phase ===
+      "earnpay"
+    ) {
+      resolveEarnPay(
+        room,
+        player
+      );
+
+      bump(room);
+
+      return;
+    }
+  }
+
+  if (type === "hold") {
+    if (
+      room.phase !==
+      "main"
+    ) {
+      throw new Error(
+        "Vastzetten kan alleen tijdens de hoofdworp."
+      );
+    }
+
+    if (!room.hasRolled) {
+      throw new Error(
+        "Gooi eerst."
+      );
+    }
+
+    const index =
+      Number(
+        data &&
+          data.index
+      );
+
+    if (
+      !Number.isInteger(
+        index
+      ) ||
+      index < 0 ||
+      index > 4
+    ) {
+      throw new Error(
+        "Ongeldige dobbelsteen."
+      );
+    }
+
+    if (room.held[index]) {
+      throw new Error(
+        "Deze dobbelsteen staat al vast."
+      );
+    }
+
+    room.held[index] = true;
+
+    room.mustHold = false;
+
+    room.banner =
+      "🔒 Dobbelsteen vastgezet. Je mag opnieuw gooien.";
+
+    bump(room);
+
+    return;
+  }
+
+  if (type === "accept") {
+    if (
+      room.phase !==
+      "main"
+    ) {
+      throw new Error(
+        "Je kunt nu niet akkoord gaan."
+      );
+    }
+
+    acceptMain(
+      room,
+      player
+    );
+
+    bump(room);
+
+    return;
+  }
+
+  throw new Error(
+    "Onbekende actie."
+  );
+}
 
 const HTML = String.raw`<!DOCTYPE html>
 <html lang="nl">
@@ -936,835 +1128,1029 @@ const HTML = String.raw`<!DOCTYPE html>
 
 <meta
   name="viewport"
-  content="width=device-width,
-  initial-scale=1,
-  maximum-scale=1,
-  user-scalable=no">
+  content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+>
 
 <title>Dobbelen 11/24</title>
 
 <style>
 
-* {
-  box-sizing: border-box;
+*{
+  box-sizing:border-box;
+  -webkit-tap-highlight-color:transparent;
 }
 
 html,
-body {
-  margin: 0;
-  min-height: 100%;
-
-  font-family:
-    Arial,
-    Helvetica,
-    sans-serif;
-
-  color: white;
-
-  background:
-    radial-gradient(
-      circle at top,
-      #173d2b 0%,
-      #06130c 45%,
-      #020504 100%
-    );
+body{
+  margin:0;
+  min-height:100%;
+  font-family:Arial,Helvetica,sans-serif;
+  background:#031d15;
+  color:#fff;
 }
 
-body {
-  min-height: 100vh;
+body{
+  background:
+    radial-gradient(
+      circle at 50% 0%,
+      #0c5037 0,
+      #062d21 35%,
+      #02150f 100%
+    );
+
+  padding:12px;
 }
 
 button,
-input {
-  font: inherit;
+input{
+  font:inherit;
 }
 
-button {
-  cursor: pointer;
+button{
+  cursor:pointer;
+  border:0;
 }
 
-button:disabled {
-  opacity: .35;
-  cursor: not-allowed;
+.hidden{
+  display:none!important;
 }
 
-.hidden {
-  display: none !important;
+.app{
+  width:min(100%,900px);
+  margin:0 auto;
 }
 
-/* ======================================================
-   TOP
-====================================================== */
-
-.wrap {
-  max-width: 1100px;
-  margin: auto;
-  padding: 10px;
-}
-
-.brand {
-  text-align: center;
-
-  padding: 18px;
-
-  border:
-    1px solid #b88a2d;
-
-  border-radius: 22px;
-
+.topbar{
   background:
     linear-gradient(
-      145deg,
-      #101f17,
-      #030806
+      180deg,
+      #073e2c,
+      #04271d
     );
 
+  border:2px solid #b88a2b;
+  border-radius:18px;
+
+  padding:12px 14px;
+  margin-bottom:12px;
+
   box-shadow:
-    0 12px 30px #0008,
-    inset 0 0 25px #0008;
+    0 10px 30px #0008;
 }
 
-.brand h1 {
-  margin: 0;
-
-  color: #ffd76b;
-
-  font-size:
-    clamp(30px, 8vw, 55px);
-
-  letter-spacing: 3px;
+.logo{
+  font-size:25px;
+  font-weight:900;
+  letter-spacing:1px;
+  color:#f5d879;
+  text-align:center;
 
   text-shadow:
-    0 2px 0 #67480d,
-    0 0 20px #ffcf4d44;
+    0 2px 5px #000;
 }
 
-.brand small {
-  color: #cdbc83;
-
-  letter-spacing: 3px;
+.sublogo{
+  text-align:center;
+  font-size:12px;
+  color:#d8c27d;
+  margin-top:3px;
 }
 
-/* ======================================================
-   STARTSCHERM
-====================================================== */
+.panel{
+  background:
+    linear-gradient(
+      145deg,
+      #0a5138,
+      #06301f
+    );
 
-.start-screen {
-  max-width: 650px;
+  border:2px solid #b98a2c;
+  border-radius:20px;
 
-  margin:
-    18px auto;
+  padding:18px;
 
-  padding: 18px;
+  box-shadow:
+    0 14px 35px #0009;
 
-  border:
-    1px solid #a67c2b;
+  margin-bottom:12px;
+}
 
-  border-radius: 22px;
+.start-screen{
+  min-height:450px;
+
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+}
+
+.start-title{
+  text-align:center;
+  font-size:24px;
+  font-weight:900;
+  color:#f4d574;
+  margin-bottom:22px;
+}
+
+.field{
+  margin-bottom:14px;
+}
+
+.field label{
+  display:block;
+  font-size:13px;
+  color:#dcc77e;
+  margin:0 0 6px 3px;
+  font-weight:bold;
+}
+
+.field input{
+  width:100%;
+  padding:14px;
+
+  border-radius:12px;
+  border:2px solid #8f6b24;
+
+  background:#021b13;
+  color:#fff;
+
+  outline:none;
+}
+
+.field input:focus{
+  border-color:#e5c45e;
+}
+
+.start-buttons{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+}
+
+.join-box{
+  margin-top:14px;
+  padding-top:14px;
+  border-top:1px solid #9d792e;
+}
+
+.btn{
+  min-height:48px;
+
+  padding:12px 15px;
+
+  border-radius:12px;
+
+  color:#fff;
+  font-weight:900;
+
+  border:2px solid #c59b39;
+
+  box-shadow:
+    0 5px 12px #0007;
+
+  transition:.12s;
+}
+
+.btn:active{
+  transform:translateY(2px);
+}
+
+.btn:disabled{
+  opacity:.4;
+  cursor:not-allowed;
+}
+
+.green{
+  background:
+    linear-gradient(
+      145deg,
+      #16824d,
+      #07532e
+    );
+}
+
+.blue{
+  background:
+    linear-gradient(
+      145deg,
+      #17578c,
+      #0a3157
+    );
+}
+
+.gold{
+  background:
+    linear-gradient(
+      145deg,
+      #d3aa4d,
+      #8f6418
+    );
+
+  color:#201600;
+}
+
+.orange{
+  background:
+    linear-gradient(
+      145deg,
+      #e47c20,
+      #9e420d
+    );
+}
+
+.red{
+  background:
+    linear-gradient(
+      145deg,
+      #a72d28,
+      #611512
+    );
+}
+
+.room-code{
+  font-size:34px;
+  text-align:center;
+  letter-spacing:6px;
+  color:#f6d875;
+  font-weight:900;
+
+  text-shadow:
+    0 3px 7px #000;
+
+  margin:3px 0 4px;
+}
+
+.status{
+  text-align:center;
+  color:#8ff1b4;
+  font-weight:bold;
+  margin-bottom:12px;
+}
+
+.invite-area{
+  text-align:center;
+  margin:0 auto 14px;
+}
+
+.invite-btn{
+  width:100%;
+  max-width:390px;
 
   background:
     linear-gradient(
       145deg,
-      #13271c,
-      #050c08
+      #d9ad45,
+      #956516
     );
 
+  color:#241800;
+
+  border:2px solid #f4d877;
+
   box-shadow:
-    0 15px 40px #0009;
+    0 0 18px #d8ad4533,
+    0 7px 16px #0008;
 }
 
-.start-title {
-  text-align: center;
+.invite-message{
+  min-height:18px;
+  margin-top:7px;
 
-  color: #ffe08a;
-
-  font-size: 24px;
-
-  font-weight: 900;
-
-  margin-bottom: 15px;
+  color:#83f0aa;
+  font-size:13px;
+  font-weight:bold;
 }
 
-.field {
-  margin-bottom: 12px;
+.players{
+  display:grid;
+  grid-template-columns:repeat(2,1fr);
+  gap:9px;
 }
 
-.field label {
-  display: block;
+.player-card{
+  background:
+    linear-gradient(
+      145deg,
+      #0b3b2b,
+      #05251a
+    );
 
-  margin-bottom: 6px;
+  border:1px solid #806021;
 
-  color: #d9c584;
+  border-radius:13px;
 
-  font-weight: 800;
+  padding:12px;
+
+  min-height:83px;
 }
 
-.field input {
-  width: 100%;
+.player-name{
+  font-weight:900;
+  font-size:15px;
+}
 
-  padding: 13px;
+.player-money{
+  color:#f1d36c;
+  font-weight:900;
+  margin-top:6px;
+}
 
-  border-radius: 12px;
+.admin-tag{
+  font-size:10px;
+  color:#f5d46e;
+  margin-left:4px;
+}
 
-  border:
-    1px solid #866728;
+.empty{
+  opacity:.5;
+  color:#b8b8b8;
+}
+
+.waiting{
+  text-align:center;
+
+  margin-top:15px;
+  padding:13px;
+
+  border-radius:12px;
+
+  background:#031b13;
+  border:1px solid #795c22;
+
+  color:#ddd;
+}
+
+.center{
+  text-align:center;
+  margin-top:15px;
+}
+
+.admin-tools{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  justify-content:center;
+}
+
+.admin-tools .btn{
+  flex:1;
+  min-width:180px;
+}
+
+.game-head{
+  display:flex;
+  gap:8px;
+  justify-content:space-between;
+  align-items:center;
+
+  margin-bottom:10px;
+}
+
+.money{
+  font-size:20px;
+  color:#f3d36e;
+  font-weight:900;
+}
+
+.turn{
+  font-weight:900;
+  color:#fff;
+}
+
+.banner{
+  background:
+    linear-gradient(
+      145deg,
+      #062a1e,
+      #02170f
+    );
+
+  border:2px solid #96732a;
+  border-radius:14px;
+
+  padding:13px;
+
+  text-align:center;
+
+  color:#f4d56d;
+  font-weight:900;
+
+  min-height:48px;
+
+  display:flex;
+  align-items:center;
+  justify-content:center;
+
+  margin-bottom:12px;
+}
+
+.target{
+  background:#220d09;
+
+  border:2px solid #d5ad45;
+  border-radius:15px;
+
+  padding:13px;
+
+  text-align:center;
+
+  margin-bottom:12px;
+
+  box-shadow:
+    0 0 18px #b88a2b33;
+}
+
+.target .small{
+  font-size:11px;
+  color:#e1c66f;
+  font-weight:bold;
+}
+
+.target .big{
+  font-size:28px;
+  font-weight:900;
+  color:#fff;
+  margin-top:2px;
+}
+
+.tray{
+  position:relative;
+
+  border-radius:30px;
+
+  padding:20px 12px 26px;
 
   background:
-    #050b07;
+    radial-gradient(
+      ellipse at center,
+      #16704b 0,
+      #0b4b33 48%,
+      #052b1d 100%
+    );
 
-  color: white;
+  border:7px solid #9b6d21;
 
-  outline: none;
+  box-shadow:
+    inset 0 0 0 4px #d0a342,
+    inset 0 -18px 35px #0008,
+    0 10px 25px #0009;
+
+  min-height:230px;
 }
 
-.field input:focus {
-  border-color: #e2bd52;
+.tray:before{
+  content:"";
+
+  position:absolute;
+
+  left:10%;
+  right:10%;
+  bottom:7px;
+
+  height:16px;
+
+  border-radius:50%;
+
+  background:#0006;
+
+  filter:blur(8px);
 }
 
-.start-buttons {
-  display: grid;
+.cup{
+  position:absolute;
+
+  left:50%;
+  top:-12px;
+
+  transform:translateX(-50%);
+
+  width:90px;
+  height:52px;
+
+  border-radius:
+    50% 50% 35% 35%;
+
+  background:
+    linear-gradient(
+      145deg,
+      #e2bf61,
+      #765018
+    );
+
+  border:3px solid #f5dc8b;
+
+  box-shadow:
+    0 6px 12px #0009;
+
+  z-index:2;
+}
+
+.cup:after{
+  content:"";
+
+  position:absolute;
+
+  left:13px;
+  right:13px;
+  top:8px;
+
+  height:16px;
+
+  border-radius:50%;
+
+  background:#1d1204;
+
+  border:2px solid #8e671e;
+}
+
+.dice-grid{
+  position:relative;
+  z-index:3;
+
+  display:grid;
+
+  grid-template-columns:
+    repeat(5,1fr);
+
+  gap:10px;
+
+  align-items:center;
+  justify-items:center;
+
+  margin-top:38px;
+}
+
+.die{
+  width:72px;
+  height:72px;
+
+  max-width:100%;
+
+  border-radius:14px;
+
+  background:
+    linear-gradient(
+      145deg,
+      #d82d28,
+      #8d1715
+    );
+
+  border:4px solid #68100e;
+
+  box-shadow:
+    inset 3px 3px 7px #ff777755,
+    inset -5px -6px 9px #3b0000aa,
+    0 7px 10px #0009;
+
+  position:relative;
+
+  display:grid;
+
+  grid-template-columns:
+    repeat(3,1fr);
+
+  grid-template-rows:
+    repeat(3,1fr);
+
+  padding:9px;
+
+  user-select:none;
+
+  transition:.12s;
+}
+
+.die.held{
+  border-color:#f4ce5b;
+
+  box-shadow:
+    0 0 0 3px #e0b44255,
+    inset 3px 3px 7px #ff777755,
+    inset -5px -6px 9px #3b0000aa,
+    0 0 17px #f1ca4b99,
+    0 7px 10px #0009;
+}
+
+.die.clickable{
+  cursor:pointer;
+}
+
+.die.clickable:active{
+  transform:scale(.95);
+}
+
+.die .pip{
+  width:11px;
+  height:11px;
+
+  border-radius:50%;
+
+  background:#fff;
+
+  box-shadow:
+    inset 1px 1px 2px #bbb,
+    0 1px 2px #0008;
+
+  align-self:center;
+  justify-self:center;
+}
+
+.d1 .p5{
+  grid-column:2;
+  grid-row:2;
+}
+
+.d2 .p1{
+  grid-column:1;
+  grid-row:1;
+}
+
+.d2 .p2{
+  grid-column:3;
+  grid-row:3;
+}
+
+.d3 .p1{
+  grid-column:1;
+  grid-row:1;
+}
+
+.d3 .p2{
+  grid-column:2;
+  grid-row:2;
+}
+
+.d3 .p3{
+  grid-column:3;
+  grid-row:3;
+}
+
+.d4 .p1{
+  grid-column:1;
+  grid-row:1;
+}
+
+.d4 .p2{
+  grid-column:3;
+  grid-row:1;
+}
+
+.d4 .p3{
+  grid-column:1;
+  grid-row:3;
+}
+
+.d4 .p4{
+  grid-column:3;
+  grid-row:3;
+}
+
+.d5 .p1{
+  grid-column:1;
+  grid-row:1;
+}
+
+.d5 .p2{
+  grid-column:3;
+  grid-row:1;
+}
+
+.d5 .p3{
+  grid-column:2;
+  grid-row:2;
+}
+
+.d5 .p4{
+  grid-column:1;
+  grid-row:3;
+}
+
+.d5 .p5{
+  grid-column:3;
+  grid-row:3;
+}
+
+.d6 .p1{
+  grid-column:1;
+  grid-row:1;
+}
+
+.d6 .p2{
+  grid-column:3;
+  grid-row:1;
+}
+
+.d6 .p3{
+  grid-column:1;
+  grid-row:2;
+}
+
+.d6 .p4{
+  grid-column:3;
+  grid-row:2;
+}
+
+.d6 .p5{
+  grid-column:1;
+  grid-row:3;
+}
+
+.d6 .p6{
+  grid-column:3;
+  grid-row:3;
+}
+
+.vast-label{
+  position:absolute;
+
+  bottom:-19px;
+  left:50%;
+
+  transform:
+    translateX(-50%);
+
+  font-size:9px;
+
+  color:#f5d56f;
+
+  font-weight:900;
+
+  letter-spacing:1px;
+
+  white-space:nowrap;
+}
+
+.rolling{
+  animation:
+    tumble .18s linear infinite;
+}
+
+.rolling .pip{
+  visibility:hidden;
+}
+
+.rolling{
+  background:
+    linear-gradient(
+      145deg,
+      #bd2925,
+      #6f1210
+    );
+}
+
+@keyframes tumble{
+
+  0%{
+    transform:
+      translate(0,0)
+      rotate(0deg);
+  }
+
+  25%{
+    transform:
+      translate(7px,-5px)
+      rotate(18deg);
+  }
+
+  50%{
+    transform:
+      translate(-6px,4px)
+      rotate(-17deg);
+  }
+
+  75%{
+    transform:
+      translate(5px,2px)
+      rotate(13deg);
+  }
+
+  100%{
+    transform:
+      translate(0,0)
+      rotate(0deg);
+  }
+
+}
+
+.controls{
+  display:grid;
 
   grid-template-columns:
     1fr 1fr;
 
-  gap: 10px;
+  gap:9px;
+
+  margin-top:16px;
 }
 
-.btn {
-  border: 0;
-
-  border-radius: 13px;
-
-  padding: 13px 16px;
-
-  font-weight: 900;
-
-  box-shadow:
-    0 5px 13px #0008;
+.controls .btn{
+  width:100%;
 }
 
-.green {
-  background:
-    linear-gradient(
-      #2aad60,
-      #0a612d
-    );
-
-  color: white;
+.full{
+  grid-column:1/-1;
 }
 
-.blue {
-  background:
-    linear-gradient(
-      #2b6dbb,
-      #123768
-    );
+.hint{
+  text-align:center;
 
-  color: white;
+  color:#c7d4cc;
+
+  font-size:12px;
+
+  margin-top:9px;
+
+  min-height:18px;
 }
 
-.orange {
-  background:
-    linear-gradient(
-      #ffb53e,
-      #bd5e0a
-    );
+.chat{
+  background:#031a12;
 
-  color: #241100;
+  border:1px solid #73571e;
+
+  border-radius:14px;
+
+  margin-top:12px;
+
+  overflow:hidden;
 }
 
-.red {
-  background:
-    linear-gradient(
-      #d94e4e,
-      #7d1717
-    );
+.chat-head{
+  padding:11px;
 
-  color: white;
+  font-weight:900;
+
+  color:#e6ca6c;
+
+  cursor:pointer;
 }
 
-/* ======================================================
-   CASINO ROOM
-====================================================== */
+.chat-body{
+  padding:10px;
 
-.panel {
-  margin-top: 12px;
-
-  padding: 15px;
-
-  border:
-    1px solid #9e772b;
-
-  border-radius: 22px;
-
-  background:
-    linear-gradient(
-      145deg,
-      #13271c,
-      #050c08
-    );
-
-  box-shadow:
-    0 12px 35px #0008;
+  border-top:1px solid #574619;
 }
 
-.room-code {
-  text-align: center;
+.chat-list{
+  max-height:150px;
+  overflow:auto;
 
-  font-size: 27px;
-
-  font-weight: 900;
-
-  letter-spacing: 7px;
-
-  color: #ffe08a;
+  margin-bottom:8px;
 }
 
-.status {
-  text-align: center;
+.chat-msg{
+  padding:4px 0;
 
-  color: #74ffab;
-
-  font-weight: 900;
-
-  margin:
-    12px 0 16px;
+  font-size:13px;
 }
 
-.players {
-  display: grid;
-
-  grid-template-columns:
-    repeat(4, 1fr);
-
-  gap: 8px;
+.chat-msg b{
+  color:#f0cf68;
 }
 
-.player {
-  min-height: 80px;
-
-  padding: 10px;
-
-  text-align: center;
-
-  border:
-    1px solid #5b4720;
-
-  border-radius: 14px;
-
-  background:
-    linear-gradient(
-      145deg,
-      #172a20,
-      #07100b
-    );
+.chat-row{
+  display:flex;
+  gap:6px;
 }
 
-.player.admin {
-  border-color: #d5aa43;
+.chat-row input{
+  flex:1;
 
-  box-shadow:
-    0 0 16px #d5aa4330;
+  background:#06271b;
+
+  color:#fff;
+
+  border:1px solid #745a23;
+
+  border-radius:9px;
+
+  padding:9px;
 }
 
-.player-name {
-  font-weight: 900;
+.chat-row button{
+  padding:9px 12px;
+
+  border-radius:9px;
+
+  background:#185a3b;
+
+  color:#fff;
+
+  border:1px solid #bd9639;
+
+  font-weight:bold;
 }
 
-.role {
-  color: #dabb64;
+.log{
+  margin-top:12px;
 
-  font-size: 11px;
+  background:#031a12;
 
-  margin-top: 5px;
+  border:1px solid #73571e;
+
+  border-radius:14px;
+
+  padding:10px;
 }
 
-.money {
-  color: #7dffad;
-
-  font-weight: 900;
-
-  margin-top: 6px;
+.log-title{
+  font-weight:900;
+  color:#e4ca6d;
+  margin-bottom:7px;
 }
 
-.waiting {
-  text-align: center;
+.log-line{
+  font-size:12px;
 
-  padding: 20px;
+  color:#cbd4ce;
+
+  padding:3px 0;
+
+  border-bottom:
+    1px solid #ffffff0b;
 }
 
-.waiting-icon {
-  font-size: 50px;
+.footer{
+  text-align:center;
+
+  color:#7e9a8c;
+
+  font-size:10px;
+
+  padding:12px;
 }
 
-.waiting h2 {
-  color: #ffd76b;
-}
+@media(max-width:650px){
 
-.waiting p {
-  color: #c0cbc4;
-}
-
-.center {
-  text-align: center;
-
-  margin-top: 14px;
-}
-
-/* ======================================================
-   GAME
-====================================================== */
-
-.game {
-  display: grid;
-
-  grid-template-columns:
-    minmax(0, 1fr)
-    280px;
-
-  gap: 12px;
-
-  margin-top: 12px;
-}
-
-.table {
-  min-height: 540px;
-
-  position: relative;
-
-  overflow: hidden;
-
-  border:
-    5px solid #b7892d;
-
-  border-radius: 28px;
-
-  background:
-    radial-gradient(
-      ellipse at center,
-      #18864d,
-      #07552e 55%,
-      #02331d
-    );
-
-  box-shadow:
-    inset 0 0 60px #0008,
-    0 15px 45px #0009;
-}
-
-.table-title {
-  text-align: center;
-
-  padding: 13px;
-
-  color: #ffe18a;
-
-  font-weight: 900;
-
-  letter-spacing: 3px;
-}
-
-.banner {
-  width: 92%;
-
-  margin: auto;
-
-  padding: 10px;
-
-  text-align: center;
-
-  border-radius: 12px;
-
-  background: #0007;
-
-  border:
-    1px solid #f4d26955;
-
-  font-weight: 900;
-}
-
-.target {
-  text-align: center;
-
-  color: #ffe28b;
-
-  font-size: 24px;
-
-  font-weight: 900;
-
-  min-height: 30px;
-
-  margin: 10px;
-}
-
-/* ======================================================
-   DOBBELBAK
-====================================================== */
-
-.tray {
-  position: relative;
-
-  width: 94%;
-
-  height: 330px;
-
-  margin: 30px auto 10px;
-
-  border:
-    3px solid #d4ad4d;
-
-  border-radius: 28px;
-
-  background:
-    radial-gradient(
-      ellipse at center,
-      #11804a,
-      #034226
-    );
-
-  box-shadow:
-    inset 0 0 50px #0008;
-}
-
-.cup {
-  position: absolute;
-
-  z-index: 5;
-
-  top: -28px;
-
-  left: 50%;
-
-  transform:
-    translateX(-50%);
-
-  width: 110px;
-
-  height: 80px;
-
-  border-radius:
-    10px
-    10px
-    38px
-    38px;
-
-  border:
-    3px solid #f4d46c;
-
-  background:
-    linear-gradient(
-      90deg,
-      #68400c,
-      #e1b546,
-      #70460d
-    );
-
-  box-shadow:
-    0 12px 25px #0009;
-}
-
-.cup:after {
-  content: "";
-
-  position: absolute;
-
-  left: 15px;
-  right: 15px;
-  top: 6px;
-
-  height: 18px;
-
-  border-radius: 50%;
-
-  background: #090909;
-
-  border:
-    2px solid #efc95a;
-}
-
-.dice-area {
-  position: absolute;
-
-  inset:
-    48px
-    10px
-    15px;
-
-  display: flex;
-
-  justify-content: center;
-
-  align-items: center;
-
-  flex-wrap: wrap;
-
-  gap: 13px;
-}
-
-/* ======================================================
-   DICE
-====================================================== */
-
-.die {
-  width: 76px;
-  height: 76px;
-
-  position: relative;
-
-  border-radius: 18px;
-
-  background:
-    linear-gradient(
-      145deg,
-      #ff4141,
-      #c80e18 55%,
-      #700009
-    );
-
-  border:
-    3px solid #f0c95b;
-
-  box-shadow:
-    inset -7px -9px 12px #0006,
-    inset 4px 4px 8px #fff2,
-    0 10px 20px #0009;
-
-  transform-style: preserve-3d;
-}
-
-.die.held {
-  border-width: 5px;
-
-  box-shadow:
-    0 0 25px #ffd53f99,
-    inset -7px -9px 12px #0006;
-}
-
-.die.held:after {
-  content: "VAST";
-
-  position: absolute;
-
-  left: 50%;
-
-  bottom: -24px;
-
-  transform:
-    translateX(-50%);
-
-  font-size: 9px;
-
-  font-weight: 900;
-
-  color: #ffe78b;
-}
-
-.pip {
-  position: absolute;
-
-  width: 14px;
-  height: 14px;
-
-  border-radius: 50%;
-
-  background:
-    radial-gradient(
-      circle at 35% 30%,
-      white,
-      #e6e6e6 55%,
-      #aaa
-    );
-
-  transform:
-    translate(-50%, -50%);
-
-  box-shadow:
-    inset 1px 1px 2px #0004;
-}
-
-.tl { left: 24%; top: 24%; }
-.tc { left: 50%; top: 24%; }
-.tr { left: 76%; top: 24%; }
-
-.ml { left: 24%; top: 50%; }
-.mc { left: 50%; top: 50%; }
-.mr { left: 76%; top: 50%; }
-
-.bl { left: 24%; top: 76%; }
-.bc { left: 50%; top: 76%; }
-.br { left: 76%; top: 76%; }
-
-.rolling {
-  animation:
-    tumble .55s linear infinite;
-}
-
-.hidden-eyes .pip {
-  opacity: 0;
-}
-
-@keyframes tumble {
-
-  0% {
-    transform:
-      translate(0,0)
-      rotateX(0deg)
-      rotateY(0deg)
-      rotateZ(0deg);
+  body{
+    padding:7px;
   }
 
-  20% {
-    transform:
-      translate(-22px,-13px)
-      rotateX(130deg)
-      rotateY(80deg)
-      rotateZ(55deg);
+  .panel{
+    padding:12px;
   }
 
-  40% {
-    transform:
-      translate(20px,14px)
-      rotateX(260deg)
-      rotateY(170deg)
-      rotateZ(135deg);
+  .start-buttons{
+    grid-template-columns:1fr;
   }
 
-  60% {
-    transform:
-      translate(-18px,10px)
-      rotateX(390deg)
-      rotateY(260deg)
-      rotateZ(215deg);
+  .players{
+    grid-template-columns:1fr 1fr;
   }
 
-  80% {
-    transform:
-      translate(15px,-12px)
-      rotateX(530deg)
-      rotateY(340deg)
-      rotateZ(295deg);
+  .dice-grid{
+    gap:6px;
   }
 
-  100% {
-    transform:
-      translate(0,0)
-      rotateX(720deg)
-      rotateY(540deg)
-      rotateZ(360deg);
-  }
-}
-
-/* ======================================================
-   SIDE
-====================================================== */
-
-.side {
-  display: flex;
-
-  flex-direction: column;
-
-  gap: 10px;
-}
-
-.side-box {
-  padding: 12px;
-
-  border:
-    1px solid #896a29;
-
-  border-radius: 17px;
-
-  background:
-    linear-gradient(
-      145deg,
-      #122319,
-      #050b07
-    );
-}
-
-.side-box h3 {
-  margin:
-    0 0 8px;
-
-  color: #f2cf68;
-}
-
-.chat {
-  max-height: 220px;
-
-  overflow-y: auto;
-
-  font-size: 13px;
-}
-
-.chat-row {
-  padding: 5px 0;
-}
-
-.chat-row b {
-  color: #ffd66b;
-}
-
-.chat-form {
-  display: flex;
-
-  gap: 5px;
-
-  margin-top: 7px;
-}
-
-.chat-form input {
-  flex: 1;
-
-  min-width: 0;
-
-  padding: 8px;
-
-  border-radius: 8px;
-
-  border:
-    1px solid #765b25;
-
-  background: #020604;
-
-  color: white;
-}
-
-.log-row {
-  font-size: 12px;
-
-  color: #bbc5bd;
-
-  padding: 3px 0;
-}
-
-/* ======================================================
-   MOBIEL
-====================================================== */
-
-@media(max-width:760px) {
-
-  .players {
-    grid-template-columns:
-      repeat(2, 1fr);
+  .die{
+    width:61px;
+    height:61px;
+    padding:7px;
+    border-radius:12px;
   }
 
-  .game {
-    grid-template-columns: 1fr;
+  .die .pip{
+    width:9px;
+    height:9px;
   }
 
-  .start-buttons {
-    grid-template-columns: 1fr;
+  .tray{
+    padding-left:7px;
+    padding-right:7px;
   }
 
-  .die {
-    width: 63px;
-    height: 63px;
+  .logo{
+    font-size:21px;
   }
 
-  .tray {
-    height: 300px;
+  .room-code{
+    font-size:29px;
   }
+
+}
+
+@media(max-width:390px){
+
+  .die{
+    width:54px;
+    height:54px;
+  }
+
+  .die .pip{
+    width:8px;
+    height:8px;
+  }
+
+  .dice-grid{
+    gap:4px;
+  }
+
+  .tray{
+    border-width:5px;
+  }
+
+  .players{
+    grid-template-columns:1fr;
+  }
+
 }
 
 </style>
@@ -1772,275 +2158,322 @@ button:disabled {
 
 <body>
 
-<div class="wrap">
-
-  <div class="brand">
-
-    <h1>🎰 DOBBELEN 11/24</h1>
-
-    <small>
-      PRIVATE CASINO TABLE
-    </small>
-
-  </div>
-
-  <!-- ==================================================
-       STARTSCHERM
-  =================================================== -->
-
-  <section
-    id="startScreen"
-    class="start-screen">
-
-    <div class="start-title">
-      🎰 WELKOM IN HET CASINO
-    </div>
-
-    <div class="field">
-
-      <label>
-        Jouw speelnaam
-      </label>
-
-      <input
-        id="createName"
-        maxlength="20"
-        placeholder="Bijvoorbeeld Wesley">
-
-    </div>
-
-    <div class="start-buttons">
-
-      <button
-        id="createButton"
-        class="btn green">
-
-        🎲 NIEUWE KAMER MAKEN
-
-      </button>
-
-      <button
-        id="showJoinButton"
-        class="btn blue">
-
-        🎩 KAMER JOINEN
-
-      </button>
-
-    </div>
-
-    <div
-      id="joinBox"
-      class="hidden"
-      style="margin-top:15px">
-
-      <div class="field">
-
-        <label>
-          Kamercode
-        </label>
-
-        <input
-          id="joinCode"
-          maxlength="6"
-          placeholder="ABC123">
-
-      </div>
-
-      <div class="field">
-
-        <label>
-          Jouw speelnaam
-        </label>
-
-        <input
-          id="joinName"
-          maxlength="20"
-          placeholder="Bijvoorbeeld Patrick">
-
-      </div>
-
-      <button
-        id="joinButton"
-        class="btn blue"
-        style="width:100%">
-
-        🎩 AAN TAFEL GAAN
-
-      </button>
-
-    </div>
-
-  </section>
-
-  <!-- ==================================================
-       CASINO WACHTKAMER
-  =================================================== -->
-
-  <section
-    id="lobby"
-    class="panel hidden">
-
-    <div
-      id="roomCode"
-      class="room-code">
-    </div>
-
-    <div class="status">
-      🟢 CASINO TAFEL OPEN
-    </div>
-
-    <div
-      id="players"
-      class="players">
-    </div>
-
-    <div
-      id="waiting"
-      class="waiting hidden">
-
-      <div class="waiting-icon">
-        🎩
-      </div>
-
-      <h2>
-        WACHT OP DE BEHEERDER
-      </h2>
-
-      <p id="waitingText">
-        De tafel wordt klaargemaakt...
-      </p>
-
-      <p>
-        🎲 Zodra de beheerder start,
-        begint jouw eerste ronde.
-      </p>
-
-    </div>
-
-    <div
-      id="adminControls"
-      class="center hidden">
-
-      <button
-        id="startButton"
-        class="btn green">
-
-        🎲 START SPEL
-
-      </button>
-
-    </div>
-
-  </section>
-
-  <!-- ==================================================
-       SPEL
-  =================================================== -->
-
-  <section
-    id="game"
-    class="game hidden">
-
-    <div class="table">
-
-      <div class="table-title">
-        🎲 DOBBELTAFEL
-      </div>
-
-      <div
-        id="banner"
-        class="banner">
-      </div>
-
-      <div
-        id="target"
-        class="target">
-      </div>
-
-      <div class="tray">
-
-        <div class="cup"></div>
-
-        <div
-          id="diceArea"
-          class="dice-area">
-        </div>
-
-      </div>
-
-      <div
-        id="turnInfo"
-        style="
-        text-align:center;
-        color:#d0dad3">
-      </div>
-
-      <div
-        id="controls"
-        class="center">
-      </div>
-
-    </div>
-
-    <div class="side">
-
-      <div class="side-box">
-
-        <h3>
-          💰 SPELERS
-        </h3>
-
-        <div
-          id="sidePlayers">
-        </div>
-
-      </div>
-
-      <div class="side-box">
-
-        <h3>
-          💬 CHAT
-        </h3>
-
-        <div
-          id="chat"
-          class="chat">
-        </div>
-
-        <form
-          id="chatForm"
-          class="chat-form">
-
-          <input
-            id="chatInput"
-            maxlength="200"
-            placeholder="Bericht...">
-
-          <button
-            class="btn blue">
-
-            ➤
-
-          </button>
-
-        </form>
-
-      </div>
-
-      <div class="side-box">
-
-        <h3>
-          📜 SPELLOG
-        </h3>
-
-        <div id="log"></div>
-
-      </div>
-
-    </div>
-
-  </section>
+<div class="app">
+
+<div class="topbar">
+
+<div class="logo">
+🎲 DOBBELEN 11/24
+</div>
+
+<div class="sublogo">
+PRIVATE CASINO TABLE
+</div>
+
+</div>
+
+<section
+  id="startScreen"
+  class="panel start-screen"
+>
+
+<div
+  id="startTitle"
+  class="start-title"
+>
+🎰 WELKOM IN HET CASINO
+</div>
+
+<div class="field">
+
+<label>
+Jouw speelnaam
+</label>
+
+<input
+  id="createName"
+  maxlength="20"
+  placeholder="Bijv. Wesley"
+  autocomplete="nickname"
+>
+
+</div>
+
+<div class="start-buttons">
+
+<button
+  id="createButton"
+  class="btn green"
+>
+🎲 NIEUWE KAMER MAKEN
+</button>
+
+<button
+  id="showJoinButton"
+  class="btn blue"
+>
+🎩 KAMER JOINEN
+</button>
+
+</div>
+
+<div
+  id="joinBox"
+  class="join-box hidden"
+>
+
+<div class="field">
+
+<label>
+Kamercode
+</label>
+
+<input
+  id="joinCode"
+  maxlength="6"
+  placeholder="Bijv. 2HS3NA"
+  autocomplete="off"
+>
+
+</div>
+
+<div class="field">
+
+<label>
+Jouw speelnaam
+</label>
+
+<input
+  id="joinName"
+  maxlength="20"
+  placeholder="Bijv. Patrick"
+  autocomplete="nickname"
+>
+
+</div>
+
+<button
+  id="joinButton"
+  class="btn blue"
+  style="width:100%"
+>
+🎩 AAN TAFEL GAAN
+</button>
+
+<div
+  id="joinError"
+  style="
+    color:#ff9b8e;
+    text-align:center;
+    font-weight:bold;
+    margin-top:9px;
+    min-height:18px
+  "
+></div>
+
+</div>
+
+</section>
+
+<section
+  id="lobby"
+  class="panel hidden"
+>
+
+<div
+  id="roomCode"
+  class="room-code"
+></div>
+
+<div class="status">
+🟢 CASINO TAFEL OPEN
+</div>
+
+<div
+  id="inviteArea"
+  class="invite-area"
+>
+
+<button
+  id="inviteButton"
+  class="btn invite-btn"
+>
+🔗 VRIEND UITNODIGEN
+</button>
+
+<div
+  id="inviteMessage"
+  class="invite-message"
+></div>
+
+</div>
+
+<div
+  id="players"
+  class="players"
+></div>
+
+<div
+  id="waiting"
+  class="waiting hidden"
+>
+
+<div style="font-size:25px">
+🎩
+</div>
+
+<div id="waitingText">
+Wachten op de beheerder...
+</div>
+
+</div>
+
+<div
+  id="adminControls"
+  class="center hidden"
+>
+
+<div class="admin-tools">
+
+<button
+  id="startButton"
+  class="btn green"
+>
+🎲 START SPEL
+</button>
+
+</div>
+
+</div>
+
+</section>
+
+<section
+  id="game"
+  class="panel hidden"
+>
+
+<div class="game-head">
+
+<div
+  id="turn"
+  class="turn"
+></div>
+
+<div
+  id="money"
+  class="money"
+>
+€100,00
+</div>
+
+</div>
+
+<div
+  id="banner"
+  class="banner"
+>
+🎲 Klaar?
+</div>
+
+<div
+  id="targetBox"
+  class="target hidden"
+>
+
+<div class="small">
+DOEL
+</div>
+
+<div
+  id="targetText"
+  class="big"
+>
+11
+</div>
+
+</div>
+
+<div class="tray">
+
+<div class="cup"></div>
+
+<div
+  id="dice"
+  class="dice-grid"
+></div>
+
+</div>
+
+<div
+  id="controls"
+  class="controls"
+></div>
+
+<div
+  id="hint"
+  class="hint"
+></div>
+
+<div class="chat">
+
+<div
+  id="chatHead"
+  class="chat-head"
+>
+💬 CHAT
+<span id="chatArrow">
+▼
+</span>
+</div>
+
+<div
+  id="chatBody"
+  class="chat-body hidden"
+>
+
+<div
+  id="chatList"
+  class="chat-list"
+></div>
+
+<div class="chat-row">
+
+<input
+  id="chatInput"
+  maxlength="160"
+  placeholder="Typ een bericht..."
+>
+
+<button
+  id="chatSend"
+>
+STUUR
+</button>
+
+</div>
+
+</div>
+
+</div>
+
+<div class="log">
+
+<div class="log-title">
+📜 SPELVERLOOP
+</div>
+
+<div
+  id="logList"
+></div>
+
+</div>
+
+</section>
+
+<div class="footer">
+Dobbelen 11/24 • Private Casino Table
+</div>
 
 </div>
 
@@ -2048,578 +2481,246 @@ button:disabled {
 
 var state = null;
 
-var lastVersion = 0;
+var lastVersion = -1;
 
-var lastRollSeq = 0;
+var lastRollSeq = -1;
 
 var rolling = false;
 
-var pipMap = {
-  1: ["mc"],
-  2: ["tl","br"],
-  3: ["tl","mc","br"],
-  4: ["tl","tr","bl","br"],
-  5: ["tl","tr","mc","bl","br"],
-  6: ["tl","tr","ml","mr","bl","br"]
-};
+var pollTimer = null;
 
-function escapeHTML(value) {
+function $(id){
+  return document.getElementById(id);
+}
 
-  return String(value || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+function euro(value){
+
+  return new Intl.NumberFormat(
+    "nl-NL",
+    {
+      style:"currency",
+      currency:"EUR"
+    }
+  ).format(value || 0);
 
 }
 
-function api(url, options) {
+async function api(
+  url,
+  options
+){
 
-  options = options || {};
+  var res =
+    await fetch(
+      url,
+      options || {}
+    );
 
-  return fetch(
-    url,
+  var data =
+    await res.json();
+
+  if(
+    !res.ok ||
+    data.error
+  ){
+
+    throw new Error(
+      data.error ||
+      "Er ging iets mis."
+    );
+
+  }
+
+  return data;
+}
+
+function postAction(
+  type,
+  data
+){
+
+  return api(
+    "/api/action",
     {
-      method:
-        options.method || "GET",
+      method:"POST",
 
-      credentials:
-        "same-origin",
-
-      headers: {
+      headers:{
         "Content-Type":
           "application/json"
       },
 
-      body:
-        options.body
-    }
-  )
-  .then(function(response) {
-
-    return response.json()
-      .then(function(data) {
-
-        if (
-          !response.ok ||
-          data.error
-        ) {
-          throw new Error(
-            data.error ||
-            "Er ging iets mis."
-          );
-        }
-
-        return data;
-
-      });
-
-  });
-
-}
-
-/* ======================================================
-   START / JOIN
-====================================================== */
-
-document.getElementById(
-  "createButton"
-).onclick = function() {
-
-  var name =
-    document.getElementById(
-      "createName"
-    ).value.trim();
-
-  if (!name) {
-    alert(
-      "Vul eerst je speelnaam in."
-    );
-    return;
-  }
-
-  api(
-    "/api/create",
-    {
-      method: "POST",
-
-      body:
-        JSON.stringify({
-          name: name
-        })
-    }
-  )
-  .then(function(data) {
-
-    state = data;
-    lastVersion =
-      data.room.version;
-
-    lastRollSeq =
-      data.room.rollSeq;
-
-    render();
-
-  })
-  .catch(function(error) {
-
-    alert(error.message);
-
-  });
-
-};
-
-document.getElementById(
-  "showJoinButton"
-).onclick = function() {
-
-  document.getElementById(
-    "joinBox"
-  ).classList.toggle("hidden");
-
-};
-
-document.getElementById(
-  "joinButton"
-).onclick = function() {
-
-  var name =
-    document.getElementById(
-      "joinName"
-    ).value.trim();
-
-  var code =
-    document.getElementById(
-      "joinCode"
-    ).value.trim();
-
-  if (!name) {
-    alert("Vul je naam in.");
-    return;
-  }
-
-  if (!code) {
-    alert("Vul de kamercode in.");
-    return;
-  }
-
-  api(
-    "/api/join",
-    {
-      method: "POST",
-
-      body:
-        JSON.stringify({
-          name: name,
-          code: code
-        })
-    }
-  )
-  .then(function(data) {
-
-    state = data;
-
-    lastVersion =
-      data.room.version;
-
-    lastRollSeq =
-      data.room.rollSeq;
-
-    render();
-
-  })
-  .catch(function(error) {
-
-    alert(error.message);
-
-  });
-
-};
-
-/* ======================================================
-   DICE
-====================================================== */
-
-function createDie(
-  value,
-  index,
-  hideEyes
-) {
-
-  var die =
-    document.createElement(
-      "div"
-    );
-
-  die.className = "die";
-
-  if (
-    state.room.held[index]
-  ) {
-    die.classList.add("held");
-  }
-
-  if (
-    rolling &&
-    !state.room.held[index]
-  ) {
-    die.classList.add("rolling");
-  }
-
-  if (hideEyes) {
-    die.classList.add(
-      "hidden-eyes"
-    );
-  }
-
-  var visualValue;
-
-  if (hideEyes) {
-    visualValue =
-      Math.floor(
-        Math.random() * 6
-      ) + 1;
-  } else {
-    visualValue = value;
-  }
-
-  (
-    pipMap[visualValue] || []
-  ).forEach(function(position) {
-
-    var pip =
-      document.createElement(
-        "div"
-      );
-
-    pip.className =
-      "pip " + position;
-
-    die.appendChild(pip);
-
-  });
-
-  /*
-    Alleen losse stenen kunnen
-    worden vastgezet.
-  */
-
-  if (
-    !hideEyes &&
-    !rolling &&
-    state.room.phase === "main" &&
-    state.room.hasRolled &&
-    !state.room.held[index]
-  ) {
-
-    die.onclick = function() {
-
-      sendAction(
-        "hold",
-        {
-          index: index
-        }
-      );
-
-    };
-
-  }
-
-  return die;
-
-}
-
-function renderDice(hideEyes) {
-
-  var area =
-    document.getElementById(
-      "diceArea"
-    );
-
-  area.innerHTML = "";
-
-  state.room.dice.forEach(
-    function(value, index) {
-
-      if (value !== null) {
-
-        area.appendChild(
-          createDie(
-            value,
-            index,
-            hideEyes
-          )
-        );
-
-      }
-
+      body:JSON.stringify({
+        type:type,
+        data:data || {}
+      })
     }
   );
 
 }
 
-/* ======================================================
-   ROLL ANIMATIE
-====================================================== */
+function showOnly(
+  section
+){
 
-function playRollAnimation() {
+  $("startScreen")
+    .classList.add("hidden");
 
-  if (rolling) return;
+  $("lobby")
+    .classList.add("hidden");
 
-  rolling = true;
+  $("game")
+    .classList.add("hidden");
 
-  renderDice(true);
-
-  setTimeout(
-    function() {
-
-      rolling = false;
-
-      renderDice(false);
-
-      renderControls();
-
-    },
-    1350
-  );
+  $(section)
+    .classList.remove("hidden");
 
 }
 
-/* ======================================================
-   ACTIES
-====================================================== */
+function render(){
 
-function sendAction(
-  action,
-  extra
-) {
+  if(!state){
+    return;
+  }
 
-  extra = extra || {};
+  if(!state.room.started){
 
-  var payload =
-    Object.assign(
-      {
-        action: action
-      },
-      extra
-    );
-
-  api(
-    "/api/action",
-    {
-      method: "POST",
-
-      body:
-        JSON.stringify(payload)
-    }
-  )
-  .then(function(data) {
-
-    var oldSeq =
-      state
-        ? state.room.rollSeq
-        : -1;
-
-    state = data;
-
-    lastVersion =
-      data.room.version;
-
-    if (
-      data.room.rollSeq !== oldSeq
-    ) {
-
-      render();
-
-      playRollAnimation();
-
-    } else {
-
-      render();
-
-    }
-
-  })
-  .catch(function(error) {
-
-    alert(error.message);
-
-  });
-
-}
-
-/* ======================================================
-   RENDER
-====================================================== */
-
-function render() {
-
-  if (!state) return;
-
-  if (!state.room.started) {
-
-    document.getElementById(
-      "startScreen"
-    ).classList.add("hidden");
-
-    document.getElementById(
-      "lobby"
-    ).classList.remove("hidden");
-
-    document.getElementById(
-      "game"
-    ).classList.add("hidden");
+    showOnly("lobby");
 
     renderLobby();
 
-    return;
+  }else{
+
+    showOnly("game");
+
+    renderGame();
+
   }
-
-  document.getElementById(
-    "startScreen"
-  ).classList.add("hidden");
-
-  document.getElementById(
-    "lobby"
-  ).classList.add("hidden");
-
-  document.getElementById(
-    "game"
-  ).classList.remove("hidden");
-
-  renderGame();
 
 }
 
-function renderLobby() {
+function renderLobby(){
 
-  document.getElementById(
-    "roomCode"
-  ).textContent =
+  $("roomCode").textContent =
     state.room.code;
 
   var players =
-    document.getElementById(
-      "players"
-    );
+    state.players || [];
 
-  players.innerHTML = "";
+  var html = "";
 
-  for (
-    var i = 0;
-    i < 4;
+  for(
+    var i=0;
+    i<4;
     i++
-  ) {
+  ){
 
     var p =
-      state.players[i];
+      players[i];
 
-    var card =
-      document.createElement(
-        "div"
-      );
+    if(p){
 
-    card.className =
-      "player";
+      html +=
+        '<div class="player-card">';
 
-    if (
-      p &&
-      p.isAdmin
-    ) {
-      card.classList.add(
-        "admin"
-      );
-    }
+      html +=
+        '<div class="player-name">' +
+        escapeHtml(p.name);
 
-    if (p) {
+      if(p.isAdmin){
 
-      card.innerHTML =
-        "<div class='player-name'>" +
-        escapeHTML(p.name) +
-        "</div>" +
+        html +=
+          '<span class="admin-tag">' +
+          '👑 BEHEERDER' +
+          '</span>';
 
-        "<div class='role'>" +
-        (
-          p.isAdmin
-            ? "👑 BEHEERDER"
-            : "🎩 SPELER"
-        ) +
-        "</div>" +
+      }
 
-        "<div class='money'>" +
-        "€" +
-        p.money.toFixed(2) +
+      html +=
+        '</div>';
+
+      html +=
+        '<div class="player-money">' +
+        euro(p.money) +
+        '</div>';
+
+      if(
+        state.me.isAdmin &&
+        !p.isAdmin
+      ){
+
+        html +=
+          "<button " +
+          "class=\"btn red\" " +
+          "style=\"margin-top:8px;" +
+          "min-height:34px;" +
+          "padding:6px 9px;" +
+          "font-size:11px\" " +
+          "onclick=\"removePlayer('" +
+          p.id +
+          "')\">" +
+          "VERWIJDER" +
+          "</button>";
+
+      }
+
+      html +=
         "</div>";
 
-    } else {
+    }else{
 
-      card.innerHTML =
-        "<div class='player-name'>" +
-        "🎩 WACHT..." +
-        "</div>" +
-
-        "<div class='role'>" +
-        "OPEN PLAATS" +
-        "</div>";
+      html +=
+        '<div class="player-card empty">' +
+        '<div class="player-name">' +
+        '🎩 OPEN PLAATS' +
+        '</div>' +
+        '<div style="margin-top:6px">' +
+        'WACHT...' +
+        '</div>' +
+        '</div>';
 
     }
-
-    players.appendChild(card);
 
   }
 
-  var admin =
-    state.me.isAdmin;
+  $("players").innerHTML =
+    html;
 
-  var adminControls =
-    document.getElementById(
-      "adminControls"
-    );
+  if(state.me.isAdmin){
 
-  var waiting =
-    document.getElementById(
-      "waiting"
-    );
+    $("adminControls")
+      .classList.remove("hidden");
 
-  if (admin) {
+    $("waiting")
+      .classList.add("hidden");
 
-    adminControls.classList.remove(
-      "hidden"
-    );
+    $("inviteArea")
+      .classList.remove("hidden");
 
-    waiting.classList.add(
-      "hidden"
-    );
-
-    document.getElementById(
-      "startButton"
-    ).disabled =
+    $("startButton").disabled =
       !state.room.canStart;
 
-  } else {
+  }else{
 
-    adminControls.classList.add(
-      "hidden"
-    );
+    $("adminControls")
+      .classList.add("hidden");
 
-    waiting.classList.remove(
-      "hidden"
-    );
+    $("inviteArea")
+      .classList.add("hidden");
 
-    var adminPlayer =
+    $("waiting")
+      .classList.remove("hidden");
+
+    var admin =
       state.players.find(
-        function(p) {
+        function(p){
           return p.isAdmin;
         }
       );
 
-    document.getElementById(
-      "waitingText"
-    ).textContent =
-      adminPlayer
+    $("waitingText").textContent =
+      admin
         ? "👑 " +
-          adminPlayer.name +
+          admin.name +
           " maakt de tafel klaar..."
         : "De beheerder maakt de tafel klaar...";
 
@@ -2627,773 +2728,1378 @@ function renderLobby() {
 
 }
 
-document.getElementById(
-  "startButton"
-).onclick = function() {
+function renderGame(){
 
-  sendAction("start");
-
-};
-
-/* ======================================================
-   GAME
-====================================================== */
-
-function renderGame() {
-
-  document.getElementById(
-    "banner"
-  ).textContent =
-    state.room.banner || "";
-
-  var target = "";
-
-  if (
-    state.room.phase === "earn"
-  ) {
-
-    target =
-      "💰 VERDIENEN: " +
-      state.room.target +
-      "'EN";
-
-  } else if (
-    state.room.phase === "pay"
-  ) {
-
-    target =
-      "💸 BETALEN: " +
-      state.room.target +
-      "'EN";
-
-  }
-
-  document.getElementById(
-    "target"
-  ).textContent =
-    target;
-
-  var cp =
+  var current =
     state.room.current;
 
-  document.getElementById(
-    "turnInfo"
-  ).textContent =
-    cp &&
-    cp.id === state.me.id
+  var mine =
+    current &&
+    current.id ===
+      state.me.id;
 
-      ? "🎯 DIT IS JOUW BEURT"
+  $("turn").textContent =
+    current
+      ? (
+          mine
+            ? "🎲 JOUW BEURT"
+            : "🎩 " +
+              current.name
+        )
+      : "";
 
-      : "⏳ " +
-        (
-          cp
-            ? cp.name
-            : ""
-        ) +
-        " is aan de beurt";
+  $("money").textContent =
+    euro(
+      state.me.money
+    );
 
-  if (!rolling) {
-    renderDice(false);
+  $("banner").textContent =
+    state.room.banner || "";
+
+  var targetBox =
+    $("targetBox");
+
+  if(
+    state.room.phase ===
+      "earnpay" &&
+    state.room.target
+  ){
+
+    targetBox
+      .classList.remove("hidden");
+
+    $("targetText").textContent =
+      (
+        state.room.mode ===
+          "earn"
+          ? "💰 VERDIENEN: "
+          : "💸 BETALEN: "
+      ) +
+      state.room.target +
+      "’EN";
+
+  }else{
+
+    targetBox
+      .classList.add("hidden");
+
   }
 
+  renderDice(false);
+
   renderControls();
-  renderSide();
+
   renderChat();
+
   renderLog();
 
 }
 
-function renderControls() {
+function dieHtml(
+  value,
+  held,
+  index,
+  hidePips
+){
 
-  var box =
-    document.getElementById(
-      "controls"
-    );
+  var cls = "die";
 
-  box.innerHTML = "";
+  if(held){
+    cls += " held";
+  }
+
+  if(
+    !held &&
+    state &&
+    state.room.phase ===
+      "main" &&
+    state.room.hasRolled
+  ){
+
+    cls += " clickable";
+
+  }
+
+  if(
+    rolling &&
+    !held
+  ){
+
+    cls += " rolling";
+
+  }
+
+  var html =
+    '<div class="' +
+    cls +
+    '" data-index="' +
+    index +
+    '"';
+
+  if(
+    !hidePips &&
+    value &&
+    !rolling
+  ){
+
+    html +=
+      ' onclick="holdDie(' +
+      index +
+      ')"';
+
+  }
+
+  html += ">";
+
+  if(
+    value &&
+    !hidePips &&
+    !rolling
+  ){
+
+    for(
+      var i=1;
+      i<=value;
+      i++
+    ){
+
+      html +=
+        '<span class="pip p' +
+        i +
+        '"></span>';
+
+    }
+
+  }else{
+
+    for(
+      var j=1;
+      j<=5;
+      j++
+    ){
+
+      html +=
+        '<span class="pip p' +
+        j +
+        '" ' +
+        'style="visibility:hidden">' +
+        '</span>';
+
+    }
+
+  }
+
+  if(held){
+
+    html +=
+      '<span class="vast-label">' +
+      'VAST' +
+      '</span>';
+
+  }
+
+  html +=
+    "</div>";
+
+  return html;
+
+}
+
+function renderDice(
+  hide
+){
+
+  var dice =
+    state.room.dice ||
+    [
+      null,
+      null,
+      null,
+      null,
+      null
+    ];
+
+  var held =
+    state.room.held ||
+    [
+      false,
+      false,
+      false,
+      false,
+      false
+    ];
+
+  var html = "";
+
+  for(
+    var i=0;
+    i<5;
+    i++
+  ){
+
+    html +=
+      dieHtml(
+        dice[i],
+        held[i],
+        i,
+        hide
+      );
+
+  }
+
+  $("dice").innerHTML =
+    html;
+
+}
+
+function renderControls(){
 
   var mine =
     state.room.current &&
     state.room.current.id ===
       state.me.id;
 
-  if (!mine) return;
+  var c =
+    $("controls");
 
-  function button(
-    text,
-    className,
-    callback
-  ) {
+  c.innerHTML = "";
 
-    var b =
-      document.createElement(
-        "button"
+  if(!mine){
+
+    $("hint").textContent =
+      "Wacht op " +
+      (
+        state.room.current
+          ? state.room.current.name
+          : "de speler"
+      ) +
+      "...";
+
+    return;
+
+  }
+
+  if(
+    state.room.phase ===
+      "main"
+  ){
+
+    if(
+      !state.room.hasRolled
+    ){
+
+      c.innerHTML =
+        "<button " +
+        "class=\"btn orange full\" " +
+        "onclick=\"doAction('roll')\">" +
+        "🎲 BEGIN WORP" +
+        "</button>";
+
+      $("hint").textContent =
+        "Gooi 5 dobbelstenen om te beginnen.";
+
+      return;
+
+    }
+
+    var rerollDisabled =
+      state.room.mustHold ||
+      state.room.held.every(
+        Boolean
       );
 
-    b.className =
-      "btn " +
-      className;
+    var acceptDisabled =
+      state.room.mustHold;
 
-    b.textContent =
-      text;
+    c.innerHTML =
+      "<button " +
+      "class=\"btn orange\" " +
+      (
+        rerollDisabled
+          ? "disabled"
+          : ""
+      ) +
+      " onclick=\"doAction('roll')\">" +
+      "🎲 OPNIEUW GOOIEN" +
+      "</button>";
 
-    b.onclick =
-      callback;
+    c.innerHTML +=
+      "<button " +
+      "class=\"btn blue\" " +
+      (
+        acceptDisabled
+          ? "disabled"
+          : ""
+      ) +
+      " onclick=\"doAction('accept')\">" +
+      "✅ AKKOORD" +
+      "</button>";
 
-    box.appendChild(b);
+    if(
+      state.room.mustHold
+    ){
 
-    return b;
-  }
+      $("hint").textContent =
+        "⚠️ Zet eerst minimaal 1 NIEUWE dobbelsteen vast.";
 
-  /*
-    BEGIN
-  */
-
-  if (
-    state.room.phase === "main" &&
-    !state.room.hasRolled
-  ) {
-
-    button(
-      "🎲 BEGIN WORP",
-      "orange",
-      function() {
-
-        sendAction(
-          "begin"
-        );
-
-      }
-    );
-
-    return;
-  }
-
-  /*
-    MAIN
-  */
-
-  if (
-    state.room.phase === "main"
-  ) {
-
-    if (
-      !state.room.held.every(
-        function(v) {
-          return v;
-        }
+    }else if(
+      state.room.held.every(
+        Boolean
       )
-    ) {
+    ){
 
-      var reroll =
-        button(
-          "🎲 OPNIEUW GOOIEN",
-          "orange",
-          function() {
+      $("hint").textContent =
+        "Alle dobbelstenen staan vast. Kies AKKOORD.";
 
-            if (
-              !state.room.mustHold
-            ) {
+    }else{
 
-              sendAction(
-                "reroll"
-              );
-
-            }
-
-          }
-        );
-
-      if (
-        state.room.mustHold
-      ) {
-        reroll.disabled = true;
-      }
+      $("hint").textContent =
+        "Tik op een losse dobbelsteen om hem vast te zetten.";
 
     }
 
-    button(
-      "✓ AKKOORD",
-      "blue",
-      function() {
+  }else if(
+    state.room.phase ===
+      "earnpay"
+  ){
 
-        sendAction(
-          "accept"
+    var text =
+      state.room.mode ===
+        "earn"
+        ? "💰 GOOI VOOR VERDIENEN"
+        : "💸 GOOI VOOR BETALEN";
+
+    c.innerHTML =
+      "<button " +
+      "class=\"btn orange full\" " +
+      "onclick=\"doAction('roll')\">" +
+      text +
+      "</button>";
+
+    $("hint").textContent =
+      "Iedere nieuwe doelsteen telt mee. Geen doelsteen = MIS.";
+
+  }
+
+}
+
+function renderChat(){
+
+  var list =
+    $("chatList");
+
+  list.innerHTML =
+    (
+      state.room.chat ||
+      []
+    )
+      .map(function(m){
+
+        return (
+          '<div class="chat-msg">' +
+          '<b>' +
+          escapeHtml(m.name) +
+          ':</b> ' +
+          escapeHtml(m.text) +
+          '</div>'
         );
 
-      }
-    );
+      })
+      .join("");
 
+  list.scrollTop =
+    list.scrollHeight;
+
+}
+
+function renderLog(){
+
+  $("logList").innerHTML =
+    (
+      state.room.log ||
+      []
+    )
+      .map(function(x){
+
+        return (
+          '<div class="log-line">' +
+          escapeHtml(x) +
+          '</div>'
+        );
+
+      })
+      .join("");
+
+}
+
+function escapeHtml(s){
+
+  return String(
+    s || ""
+  ).replace(
+    /[&<>'"]/g,
+    function(ch){
+
+      return {
+        "&":"&amp;",
+        "<":"&lt;",
+        ">":"&gt;",
+        "'":"&#39;",
+        '"':"&quot;"
+      }[ch];
+
+    }
+  );
+
+}
+
+async function refresh(){
+
+  try{
+
+    var data =
+      await api(
+        "/api/state"
+      );
+
+    if(!data.state){
+      return;
+    }
+
+    var oldSeq =
+      state
+        ? state.room.rollSeq
+        : -1;
+
+    state =
+      data.state;
+
+    var rollChanged =
+      oldSeq !==
+        state.room.rollSeq &&
+      oldSeq !== -1;
+
+    if(rollChanged){
+
+      rolling = true;
+
+      render();
+
+      renderDice(true);
+
+      setTimeout(
+        function(){
+
+          rolling = false;
+
+          render();
+
+        },
+        1350
+      );
+
+    }else{
+
+      render();
+
+    }
+
+  }catch(e){
+
+    console.log(e);
+
+  }
+
+}
+
+async function doAction(
+  type,
+  data
+){
+
+  if(rolling){
     return;
   }
 
-  /*
-    EARN / PAY
-  */
+  try{
 
-  if (
-    state.room.phase === "earn" ||
-    state.room.phase === "pay"
-  ) {
+    var oldSeq =
+      state
+        ? state.room.rollSeq
+        : -1;
 
-    button(
-      state.room.phase === "earn"
-        ? "🎲 GOOI VOOR VERDIENEN"
-        : "🎲 GOOI VOOR BETALEN",
+    var result =
+      await postAction(
+        type,
+        data
+      );
 
-      state.room.phase === "earn"
-        ? "green"
-        : "red",
+    state =
+      result.state;
 
-      function() {
+    var changed =
+      oldSeq !==
+      state.room.rollSeq;
 
-        sendAction(
-          "roundRoll"
-        );
+    if(changed){
+
+      rolling = true;
+
+      render();
+
+      renderDice(true);
+
+      setTimeout(
+        function(){
+
+          rolling = false;
+
+          render();
+
+        },
+        1350
+      );
+
+    }else{
+
+      render();
+
+    }
+
+  }catch(e){
+
+    alert(e.message);
+
+  }
+
+}
+
+function holdDie(
+  index
+){
+
+  if(
+    rolling ||
+    !state ||
+    !state.room.started
+  ){
+
+    return;
+
+  }
+
+  if(
+    !state.room.current ||
+    state.room.current.id !==
+      state.me.id
+  ){
+
+    return;
+
+  }
+
+  if(
+    state.room.phase !==
+      "main"
+  ){
+
+    return;
+
+  }
+
+  if(
+    !state.room.hasRolled
+  ){
+
+    return;
+
+  }
+
+  doAction(
+    "hold",
+    {
+      index:index
+    }
+  );
+
+}
+
+async function removePlayer(
+  playerId
+){
+
+  if(
+    !confirm(
+      "Deze speler uit de tafel verwijderen?"
+    )
+  ){
+
+    return;
+
+  }
+
+  doAction(
+    "remove",
+    {
+      playerId:
+        playerId
+    }
+  );
+
+}
+
+async function inviteFriend(){
+
+  if(
+    !state ||
+    !state.room
+  ){
+
+    return;
+
+  }
+
+  var link =
+    location.origin +
+    "/?join=" +
+    state.room.code;
+
+  var shareText =
+    "🎰 Kom bij mijn Dobbelen 11/24 casino tafel!";
+
+  var msg =
+    $("inviteMessage");
+
+  if(
+    navigator.share
+  ){
+
+    try{
+
+      await navigator.share({
+        title:
+          "Dobbelen 11/24",
+
+        text:
+          shareText,
+
+        url:
+          link
+      });
+
+      msg.textContent =
+        "✅ Uitnodiging gedeeld!";
+
+      return;
+
+    }catch(e){
+
+      if(
+        e &&
+        e.name ===
+          "AbortError"
+      ){
+
+        return;
 
       }
+
+    }
+
+  }
+
+  try{
+
+    await navigator.clipboard.writeText(
+      link
+    );
+
+    msg.textContent =
+      "✅ Uitnodigingslink gekopieerd! Stuur hem door via WhatsApp.";
+
+  }catch(e){
+
+    window.prompt(
+      "Kopieer deze uitnodigingslink:",
+      link
     );
 
   }
 
 }
 
-function renderSide() {
-
-  var box =
-    document.getElementById(
-      "sidePlayers"
-    );
-
-  box.innerHTML = "";
-
-  state.players.forEach(
-    function(p) {
-
-      var row =
-        document.createElement(
-          "div"
-        );
-
-      row.style.display =
-        "flex";
-
-      row.style.justifyContent =
-        "space-between";
-
-      row.style.padding =
-        "7px";
-
-      row.innerHTML =
-        "<span>" +
-        (
-          p.isAdmin
-            ? "👑 "
-            : "🎩 "
-        ) +
-        escapeHTML(p.name) +
-        "</span>" +
-
-        "<b>" +
-        "€" +
-        p.money.toFixed(2) +
-        "</b>";
-
-      box.appendChild(row);
-
-    }
-  );
-
-}
-
-function renderChat() {
-
-  var box =
-    document.getElementById(
-      "chat"
-    );
-
-  box.innerHTML = "";
-
-  state.room.chat.forEach(
-    function(message) {
-
-      var row =
-        document.createElement(
-          "div"
-        );
-
-      row.className =
-        "chat-row";
-
-      row.innerHTML =
-        "<b>" +
-        escapeHTML(
-          message.player
-        ) +
-        "</b> " +
-        escapeHTML(
-          message.text
-        );
-
-      box.appendChild(row);
-
-    }
-  );
-
-  box.scrollTop =
-    box.scrollHeight;
-
-}
-
-function renderLog() {
-
-  var box =
-    document.getElementById(
-      "log"
-    );
-
-  box.innerHTML = "";
-
-  state.room.log
-    .slice(0, 12)
-    .forEach(
-      function(item) {
-
-        var row =
-          document.createElement(
-            "div"
-          );
-
-        row.className =
-          "log-row";
-
-        row.textContent =
-          item.time +
-          " — " +
-          item.text;
-
-        box.appendChild(row);
-
-      }
-    );
-
-}
-
-/* ======================================================
-   CHAT
-====================================================== */
-
-document.getElementById(
-  "chatForm"
-).onsubmit = function(event) {
-
-  event.preventDefault();
+async function sendChat(){
 
   var input =
-    document.getElementById(
-      "chatInput"
-    );
+    $("chatInput");
 
   var text =
     input.value.trim();
 
-  if (!text) return;
+  if(!text){
+    return;
+  }
 
   input.value = "";
 
-  sendAction(
-    "chat",
-    {
-      text: text
-    }
-  );
+  try{
 
-};
+    var result =
+      await postAction(
+        "chat",
+        {
+          text:text
+        }
+      );
 
-/* ======================================================
-   POLLING
-====================================================== */
+    state =
+      result.state;
 
-function poll() {
+    render();
 
-  api("/api/state")
-    .then(function(data) {
+  }catch(e){
 
-      if (!state) {
+    alert(e.message);
 
-        state = data;
-
-        lastVersion =
-          data.room.version;
-
-        lastRollSeq =
-          data.room.rollSeq;
-
-        render();
-
-        return;
-      }
-
-      var rollChanged =
-        data.room.rollSeq !==
-        lastRollSeq;
-
-      state = data;
-
-      lastVersion =
-        data.room.version;
-
-      if (rollChanged) {
-
-        lastRollSeq =
-          data.room.rollSeq;
-
-        render();
-
-        playRollAnimation();
-
-      } else if (!rolling) {
-
-        render();
-
-      }
-
-    })
-    .catch(function() {
-
-      /*
-        Geen sessie is normaal
-        op het startscherm.
-      */
-
-    });
+  }
 
 }
 
-setInterval(
-  poll,
-  700
-);
+$("createButton").onclick =
+  async function(){
 
-poll();
+    var name =
+      $("createName")
+        .value
+        .trim();
+
+    if(!name){
+
+      alert(
+        "Vul eerst je speelnaam in."
+      );
+
+      return;
+
+    }
+
+    try{
+
+      var result =
+        await api(
+          "/api/create",
+          {
+            method:"POST",
+
+            headers:{
+              "Content-Type":
+                "application/json"
+            },
+
+            body:
+              JSON.stringify({
+                name:name
+              })
+          }
+        );
+
+      state =
+        result.state;
+
+      history.replaceState(
+        {},
+        "",
+        "/"
+      );
+
+      render();
+
+    }catch(e){
+
+      alert(
+        e.message
+      );
+
+    }
+
+  };
+
+$("showJoinButton").onclick =
+  function(){
+
+    $("joinBox")
+      .classList.remove(
+        "hidden"
+      );
+
+    $("joinCode")
+      .focus();
+
+  };
+
+$("joinButton").onclick =
+  async function(){
+
+    var code =
+      $("joinCode")
+        .value
+        .trim()
+        .toUpperCase();
+
+    var name =
+      $("joinName")
+        .value
+        .trim();
+
+    $("joinError")
+      .textContent = "";
+
+    if(
+      !code ||
+      !name
+    ){
+
+      $("joinError")
+        .textContent =
+        "Vul de kamercode en je speelnaam in.";
+
+      return;
+
+    }
+
+    try{
+
+      var result =
+        await api(
+          "/api/join",
+          {
+            method:"POST",
+
+            headers:{
+              "Content-Type":
+                "application/json"
+            },
+
+            body:
+              JSON.stringify({
+                code:code,
+                name:name
+              })
+          }
+        );
+
+      state =
+        result.state;
+
+      history.replaceState(
+        {},
+        "",
+        "/"
+      );
+
+      render();
+
+    }catch(e){
+
+      $("joinError")
+        .textContent =
+        e.message;
+
+    }
+
+  };
+
+$("startButton").onclick =
+  function(){
+
+    doAction(
+      "start"
+    );
+
+  };
+
+$("inviteButton").onclick =
+  inviteFriend;
+
+$("chatSend").onclick =
+  sendChat;
+
+$("chatInput")
+  .addEventListener(
+    "keydown",
+    function(e){
+
+      if(
+        e.key ===
+        "Enter"
+      ){
+
+        sendChat();
+
+      }
+
+    }
+  );
+
+$("chatHead").onclick =
+  function(){
+
+    $("chatBody")
+      .classList.toggle(
+        "hidden"
+      );
+
+    $("chatArrow")
+      .textContent =
+      $("chatBody")
+        .classList.contains(
+          "hidden"
+        )
+        ? "▼"
+        : "▲";
+
+  };
+
+function setupInviteMode(){
+
+  var params =
+    new URLSearchParams(
+      location.search
+    );
+
+  var code =
+    (
+      params.get("join") ||
+      ""
+    )
+      .toUpperCase()
+      .replace(
+        /[^A-Z0-9]/g,
+        ""
+      )
+      .slice(0,6);
+
+  if(!code){
+    return;
+  }
+
+  $("startTitle")
+    .textContent =
+    "🎩 JE BENT UITGENODIGD";
+
+  $("joinBox")
+    .classList.remove(
+      "hidden"
+    );
+
+  $("joinCode")
+    .value =
+    code;
+
+  $("joinCode")
+    .readOnly = true;
+
+  $("createButton")
+    .classList.add(
+      "hidden"
+    );
+
+  $("showJoinButton")
+    .classList.add(
+      "hidden"
+    );
+
+  $("joinName")
+    .focus();
+
+}
+
+async function initial(){
+
+  setupInviteMode();
+
+  try{
+
+    var data =
+      await api(
+        "/api/state"
+      );
+
+    if(data.state){
+
+      state =
+        data.state;
+
+      render();
+
+    }
+
+  }catch(e){}
+
+  if(pollTimer){
+
+    clearInterval(
+      pollTimer
+    );
+
+  }
+
+  pollTimer =
+    setInterval(
+      refresh,
+      1200
+    );
+
+}
+
+initial();
 
 </script>
 
 </body>
 </html>`;
 
-/* =========================================================
-   HTTP HELPERS
-========================================================= */
+const server =
+  http.createServer(
+    async function(req, res){
 
-function sendJSON(res, status, data) {
-  res.writeHead(status, {
-    "Content-Type":
-      "application/json; charset=utf-8",
-
-    "Cache-Control":
-      "no-store"
-  });
-
-  res.end(
-    JSON.stringify(data)
-  );
-}
-
-function readBody(req) {
-  return new Promise(function(resolve, reject) {
-
-    let body = "";
-
-    req.on("data", function(chunk) {
-
-      body += chunk;
-
-      if (body.length > 1000000) {
-        reject(
-          new Error("Request te groot.")
+      const url =
+        new URL(
+          req.url,
+          "http://localhost"
         );
 
-        req.destroy();
-      }
-
-    });
-
-    req.on("end", function() {
-
-      if (!body) {
-        resolve({});
-        return;
-      }
-
-      try {
-        resolve(
-          JSON.parse(body)
-        );
-      } catch (e) {
-        reject(
-          new Error(
-            "Ongeldige JSON."
-          )
-        );
-      }
-
-    });
-
-    req.on("error", reject);
-
-  });
-}
-
-/* =========================================================
-   SERVER
-========================================================= */
-
-const server = http.createServer(
-  async function(req, res) {
-
-    try {
-
-      /* HEALTH */
-
-      if (
-        req.method === "GET" &&
-        req.url === "/health"
-      ) {
-
-        return sendJSON(
-          res,
-          200,
-          {
-            ok: true
-          }
+      const session =
+        cookieSession(
+          req,
+          res
         );
 
-      }
+      try{
 
-      /* STATE */
+        if(
+          req.method ===
+            "GET" &&
+          url.pathname ===
+            "/health"
+        ){
 
-      if (
-        req.method === "GET" &&
-        req.url === "/api/state"
-      ) {
-
-        const session =
-          getRoomPlayer(req);
-
-        if (!session) {
-
-          return sendJSON(
+          return json(
             res,
-            401,
+            200,
             {
-              error:
-                "Geen sessie"
+              ok:true,
+              rooms:rooms.size
             }
           );
 
         }
 
-        return sendJSON(
-          res,
-          200,
-          publicState(
-            session.room,
-            session.player
-          )
-        );
+        if(
+          req.method ===
+            "GET" &&
+          url.pathname ===
+            "/api/state"
+        ){
 
-      }
+          if(
+            !session.roomCode ||
+            !session.playerId
+          ){
 
-      /* CREATE */
+            return json(
+              res,
+              200,
+              {
+                state:null
+              }
+            );
 
-      if (
-        req.method === "POST" &&
-        req.url === "/api/create"
-      ) {
+          }
 
-        const body =
-          await readBody(req);
+          const room =
+            rooms.get(
+              session.roomCode
+            );
 
-        const name =
-          cleanName(
-            body.name
+          if(!room){
+
+            return json(
+              res,
+              200,
+              {
+                state:null
+              }
+            );
+
+          }
+
+          const me =
+            findPlayer(
+              room,
+              session.playerId
+            );
+
+          if(!me){
+
+            return json(
+              res,
+              200,
+              {
+                state:null
+              }
+            );
+
+          }
+
+          return json(
+            res,
+            200,
+            {
+              state:
+                publicState(
+                  room,
+                  me
+                )
+            }
           );
 
-        const created =
-          createRoom(name);
+        }
 
-        const sid =
-          createSession(
-            created.room.code,
-            created.player.id
-          );
+        if(
+          req.method ===
+            "POST" &&
+          url.pathname ===
+            "/api/create"
+        ){
 
-        res.setHeader(
-          "Set-Cookie",
-          "sid=" +
-          sid +
-          "; HttpOnly; Path=/; SameSite=Lax"
-        );
+          const body =
+            await parseBody(
+              req
+            );
 
-        return sendJSON(
-          res,
-          200,
-          publicState(
-            created.room,
-            created.player
-          )
-        );
-
-      }
-
-      /* JOIN */
-
-      if (
-        req.method === "POST" &&
-        req.url === "/api/join"
-      ) {
-
-        const body =
-          await readBody(req);
-
-        const joined =
-          joinRoom(
-            cleanCode(
-              body.code
-            ),
+          const name =
             cleanName(
               body.name
-            )
-          );
+            );
 
-        const sid =
-          createSession(
-            joined.room.code,
-            joined.player.id
-          );
+          if(!name){
 
-        res.setHeader(
-          "Set-Cookie",
-          "sid=" +
-          sid +
-          "; HttpOnly; Path=/; SameSite=Lax"
-        );
+            throw new Error(
+              "Vul je speelnaam in."
+            );
 
-        return sendJSON(
-          res,
-          200,
-          publicState(
-            joined.room,
-            joined.player
-          )
-        );
+          }
 
-      }
+          const room =
+            newRoom(name);
 
-      /* ACTION */
+          const player =
+            room.players[0];
 
-      if (
-        req.method === "POST" &&
-        req.url === "/api/action"
-      ) {
+          session.roomCode =
+            room.code;
 
-        const session =
-          getRoomPlayer(req);
+          session.playerId =
+            player.id;
 
-        if (!session) {
+          bump(room);
 
-          return sendJSON(
+          return json(
             res,
-            401,
+            200,
             {
-              error:
-                "Geen sessie"
+              state:
+                publicState(
+                  room,
+                  player
+                )
             }
           );
 
         }
 
-        const body =
-          await readBody(req);
+        if(
+          req.method ===
+            "POST" &&
+          url.pathname ===
+            "/api/join"
+        ){
 
-        doAction(
-          session.room,
-          session.player,
-          body
-        );
+          const body =
+            await parseBody(
+              req
+            );
 
-        return sendJSON(
-          res,
-          200,
-          publicState(
-            session.room,
-            session.player
-          )
-        );
+          const name =
+            cleanName(
+              body.name
+            );
 
-      }
+          if(!name){
 
-      /* WEBSITE */
+            throw new Error(
+              "Vul je speelnaam in."
+            );
 
-      if (
-        req.method === "GET" &&
-        (
-          req.url === "/" ||
-          req.url.indexOf("/?") === 0
-        )
-      ) {
+          }
+
+          const result =
+            joinRoom(
+              body.code,
+              name
+            );
+
+          session.roomCode =
+            result.room.code;
+
+          session.playerId =
+            result.player.id;
+
+          return json(
+            res,
+            200,
+            {
+              state:
+                publicState(
+                  result.room,
+                  result.player
+                )
+            }
+          );
+
+        }
+
+        if(
+          req.method ===
+            "POST" &&
+          url.pathname ===
+            "/api/action"
+        ){
+
+          if(
+            !session.roomCode ||
+            !session.playerId
+          ){
+
+            throw new Error(
+              "Geen actieve kamer."
+            );
+
+          }
+
+          const room =
+            rooms.get(
+              session.roomCode
+            );
+
+          if(!room){
+
+            throw new Error(
+              "Kamer bestaat niet meer."
+            );
+
+          }
+
+          const player =
+            findPlayer(
+              room,
+              session.playerId
+            );
+
+          if(!player){
+
+            throw new Error(
+              "Je zit niet meer aan deze tafel."
+            );
+
+          }
+
+          const body =
+            await parseBody(
+              req
+            );
+
+          action(
+            room,
+            player,
+            body.type,
+            body.data || {}
+          );
+
+          return json(
+            res,
+            200,
+            {
+              state:
+                publicState(
+                  room,
+                  player
+                )
+            }
+          );
+
+        }
+
+        if(
+          req.method ===
+            "GET" &&
+          url.pathname ===
+            "/"
+        ){
+
+          res.writeHead(
+            200,
+            {
+              "Content-Type":
+                "text/html; charset=utf-8",
+
+              "Cache-Control":
+                "no-store"
+            }
+          );
+
+          return res.end(
+            HTML
+          );
+
+        }
 
         res.writeHead(
-          200,
+          404,
           {
             "Content-Type":
-              "text/html; charset=utf-8",
-
-            "Cache-Control":
-              "no-store"
+              "text/plain; charset=utf-8"
           }
         );
 
-        return res.end(HTML);
+        res.end(
+          "Niet gevonden"
+        );
+
+      }catch(e){
+
+        return json(
+          res,
+          400,
+          {
+            error:
+              e.message ||
+              "Er ging iets mis."
+          }
+        );
 
       }
 
-      return sendJSON(
-        res,
-        404,
-        {
-          error:
-            "Niet gevonden"
-        }
-      );
-
-    } catch (error) {
-
-      console.error(error);
-
-      return sendJSON(
-        res,
-        400,
-        {
-          error:
-            error.message ||
-            "Er ging iets mis."
-        }
-      );
-
     }
-
-  }
-);
+  );
 
 server.listen(
   PORT,
-  function() {
+  function(){
 
     console.log(
-      "🎰 Dobbelen 11/24 draait op poort " +
+      "Dobbelen 11/24 draait op poort " +
       PORT
     );
 
