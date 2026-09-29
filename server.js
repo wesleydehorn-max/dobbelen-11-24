@@ -42,7 +42,7 @@ button{
 }
 
 button:disabled{
-  opacity:.35;
+  opacity:.32;
   cursor:not-allowed;
 }
 
@@ -52,17 +52,16 @@ button:disabled{
   padding:7px;
 }
 
-/* HEADER */
+/* =========================
+   HEADER
+========================= */
 
 .header{
-  background:
-    linear-gradient(180deg,#381209,#180604);
+  background:linear-gradient(180deg,#381209,#180604);
   border:3px solid #c79a35;
   border-radius:18px;
   padding:10px;
-  box-shadow:
-    0 6px 22px #0009,
-    inset 0 0 20px #0007;
+  box-shadow:0 6px 22px #0009;
   text-align:center;
 }
 
@@ -84,12 +83,14 @@ button:disabled{
   margin-top:8px;
   padding:9px;
   border-radius:11px;
-  background:#050505b8;
+  background:#050505c7;
   font-weight:900;
   font-size:15px;
 }
 
-/* PLAYERS */
+/* =========================
+   PLAYERS
+========================= */
 
 .players{
   display:grid;
@@ -129,7 +130,9 @@ button:disabled{
   margin-top:3px;
 }
 
-/* GAME */
+/* =========================
+   GAME
+========================= */
 
 .game{
   margin-top:7px;
@@ -163,15 +166,16 @@ button:disabled{
   font-weight:900;
 }
 
-/* TARGET */
+/* =========================
+   TARGET
+========================= */
 
 .targetBox{
   display:none;
   margin:8px auto;
   max-width:550px;
   text-align:center;
-  background:
-    linear-gradient(180deg,#271904,#100a02);
+  background:linear-gradient(180deg,#271904,#100a02);
   border:2px solid #d8a73d;
   border-radius:14px;
   padding:9px;
@@ -207,16 +211,16 @@ button:disabled{
   color:#ff7474;
 }
 
-/* DICE TABLE */
+/* =========================
+   DICE TABLE
+========================= */
 
 .diceArea{
   position:relative;
-  min-height:300px;
+  min-height:310px;
   margin-top:9px;
-
   border-radius:19px;
   border:2px solid #9f7629;
-
   overflow:hidden;
 
   background:
@@ -227,22 +231,23 @@ button:disabled{
       #062c1e 100%
     );
 
-  box-shadow:
-    inset 0 0 40px #0009;
+  box-shadow:inset 0 0 40px #0009;
 }
 
-/* DOBBELBAK */
+/* =========================
+   DICE CUP
+========================= */
 
 .diceCup{
   position:absolute;
-  top:9px;
+  top:10px;
   left:50%;
   transform:translateX(-50%);
 
-  width:105px;
-  height:43px;
+  width:110px;
+  height:47px;
 
-  border-radius:10px 10px 42px 42px;
+  border-radius:10px 10px 45px 45px;
 
   background:
     linear-gradient(
@@ -258,15 +263,16 @@ button:disabled{
     0 5px 12px #000a,
     inset 0 4px 5px #ffe79b55;
 
-  z-index:2;
+  z-index:5;
 }
 
 .diceCup::before{
   content:"";
+
   position:absolute;
 
-  width:74px;
-  height:20px;
+  width:78px;
+  height:21px;
 
   left:50%;
   top:6px;
@@ -279,8 +285,7 @@ button:disabled{
 
   border:2px solid #f0c557;
 
-  box-shadow:
-    inset 0 0 12px #000;
+  box-shadow:inset 0 0 12px #000;
 }
 
 .diceCup::after{
@@ -289,47 +294,50 @@ button:disabled{
   position:absolute;
 
   left:50%;
-  top:29px;
+  top:31px;
 
   transform:translateX(-50%);
 
+  color:#271800;
   font-size:7px;
   font-weight:1000;
-
-  color:#271800;
   white-space:nowrap;
 }
 
-/* DICE TRAY */
+/* =========================
+   DICE TRAY
+========================= */
 
 .diceTray{
   position:relative;
 
-  min-height:300px;
+  min-height:310px;
 
   display:flex;
   flex-wrap:wrap;
 
-  align-content:center;
   justify-content:center;
   align-items:center;
+  align-content:center;
 
-  gap:15px;
+  gap:14px;
 
-  padding:65px 14px 25px;
+  padding:70px 12px 24px;
 
-  perspective:1200px;
+  perspective:900px;
 }
 
-/* DIE */
+/* =========================
+   DICE
+========================= */
 
 .die{
   position:relative;
 
-  width:76px;
-  height:76px;
+  width:74px;
+  height:74px;
 
-  flex:0 0 76px;
+  flex:0 0 74px;
 
   border-radius:15px;
 
@@ -348,15 +356,14 @@ button:disabled{
     inset -9px -9px 13px #430000aa,
     0 9px 13px #000a;
 
-  transform-style:preserve-3d;
+  transform-origin:center center;
 
   user-select:none;
   touch-action:manipulation;
 
   transition:
-    filter .15s,
     box-shadow .15s,
-    transform .15s;
+    filter .15s;
 }
 
 .die.selectable{
@@ -364,10 +371,11 @@ button:disabled{
 }
 
 .die.selectable:active{
-  transform:scale(.92);
+  filter:brightness(1.25);
 }
 
-.die.held{
+.die.held,
+.die.settled{
   border-color:#fff08a;
 
   box-shadow:
@@ -378,7 +386,8 @@ button:disabled{
     0 9px 13px #000a;
 }
 
-.die.held::before{
+.die.held::before,
+.die.settled::before{
   content:"VAST";
 
   position:absolute;
@@ -398,21 +407,242 @@ button:disabled{
   font-size:8px;
   font-weight:1000;
 
-  z-index:10;
+  z-index:20;
 }
 
-.die.settled{
-  border-color:#fff08a;
+/*
+  BELANGRIJK:
+  Geen rotateX/rotateY.
+  Daardoor blijft de dobbelsteen altijd
+  mooi vierkant tijdens de animatie.
+*/
 
-  box-shadow:
-    0 0 0 3px #ffcf38aa,
-    0 0 25px #ffd83e99,
-    inset 5px 5px 9px #ff9a87aa,
-    inset -9px -9px 13px #430000aa,
-    0 9px 13px #000a;
+.die.rolling{
+  animation-duration:.85s;
+  animation-fill-mode:both;
+  animation-timing-function:cubic-bezier(.18,.72,.2,1);
 }
 
-/* PIPS */
+.rollA{
+  animation-name:rollA;
+}
+
+.rollB{
+  animation-name:rollB;
+}
+
+.rollC{
+  animation-name:rollC;
+}
+
+.rollD{
+  animation-name:rollD;
+}
+
+.rollE{
+  animation-name:rollE;
+}
+
+/* Elke steen heeft een eigen baan */
+
+@keyframes rollA{
+
+  0%{
+    transform:
+      translate(-120px,-110px)
+      rotate(-20deg)
+      scale(.82);
+  }
+
+  20%{
+    transform:
+      translate(-75px,-35px)
+      rotate(130deg)
+      scale(1.04);
+  }
+
+  45%{
+    transform:
+      translate(-20px,30px)
+      rotate(310deg)
+      scale(1.08);
+  }
+
+  70%{
+    transform:
+      translate(45px,-10px)
+      rotate(510deg)
+      scale(1.04);
+  }
+
+  100%{
+    transform:
+      translate(0,0)
+      rotate(690deg)
+      scale(1);
+  }
+
+}
+
+@keyframes rollB{
+
+  0%{
+    transform:
+      translate(125px,-105px)
+      rotate(35deg)
+      scale(.82);
+  }
+
+  20%{
+    transform:
+      translate(75px,-20px)
+      rotate(-100deg)
+      scale(1.05);
+  }
+
+  45%{
+    transform:
+      translate(20px,45px)
+      rotate(-300deg)
+      scale(1.08);
+  }
+
+  70%{
+    transform:
+      translate(-45px,-15px)
+      rotate(-500deg)
+      scale(1.04);
+  }
+
+  100%{
+    transform:
+      translate(0,0)
+      rotate(-690deg)
+      scale(1);
+  }
+
+}
+
+@keyframes rollC{
+
+  0%{
+    transform:
+      translate(-105px,105px)
+      rotate(-45deg)
+      scale(.82);
+  }
+
+  20%{
+    transform:
+      translate(-30px,65px)
+      rotate(110deg)
+      scale(1.05);
+  }
+
+  45%{
+    transform:
+      translate(55px,20px)
+      rotate(280deg)
+      scale(1.08);
+  }
+
+  70%{
+    transform:
+      translate(20px,-40px)
+      rotate(470deg)
+      scale(1.04);
+  }
+
+  100%{
+    transform:
+      translate(0,0)
+      rotate(650deg)
+      scale(1);
+  }
+
+}
+
+@keyframes rollD{
+
+  0%{
+    transform:
+      translate(110px,105px)
+      rotate(40deg)
+      scale(.82);
+  }
+
+  20%{
+    transform:
+      translate(45px,65px)
+      rotate(-120deg)
+      scale(1.05);
+  }
+
+  45%{
+    transform:
+      translate(-50px,20px)
+      rotate(-300deg)
+      scale(1.08);
+  }
+
+  70%{
+    transform:
+      translate(-20px,-45px)
+      rotate(-500deg)
+      scale(1.04);
+  }
+
+  100%{
+    transform:
+      translate(0,0)
+      rotate(-680deg)
+      scale(1);
+  }
+
+}
+
+@keyframes rollE{
+
+  0%{
+    transform:
+      translate(0,-125px)
+      rotate(-30deg)
+      scale(.82);
+  }
+
+  20%{
+    transform:
+      translate(55px,-55px)
+      rotate(120deg)
+      scale(1.05);
+  }
+
+  45%{
+    transform:
+      translate(-45px,10px)
+      rotate(310deg)
+      scale(1.08);
+  }
+
+  70%{
+    transform:
+      translate(35px,45px)
+      rotate(520deg)
+      scale(1.04);
+  }
+
+  100%{
+    transform:
+      translate(0,0)
+      rotate(700deg)
+      scale(1);
+  }
+
+}
+
+/* =========================
+   PIPS
+========================= */
 
 .pip{
   position:absolute;
@@ -430,234 +660,18 @@ button:disabled{
 }
 
 .p1{left:8px;top:8px}
-.p2{left:31px;top:8px}
+.p2{left:30px;top:8px}
 .p3{right:8px;top:8px}
-.p4{left:8px;top:31px}
-.p5{left:31px;top:31px}
-.p6{right:8px;top:31px}
+.p4{left:8px;top:30px}
+.p5{left:30px;top:30px}
+.p6{right:8px;top:30px}
 .p7{left:8px;bottom:8px}
-.p8{left:31px;bottom:8px}
+.p8{left:30px;bottom:8px}
 .p9{right:8px;bottom:8px}
 
-/* TUMBLE */
-
-.die.rolling{
-  animation-duration:.85s;
-  animation-fill-mode:both;
-  animation-timing-function:cubic-bezier(.16,.72,.2,1);
-}
-
-.rollA{
-  animation-name:tumbleA;
-}
-
-.rollB{
-  animation-name:tumbleB;
-}
-
-.rollC{
-  animation-name:tumbleC;
-}
-
-.rollD{
-  animation-name:tumbleD;
-}
-
-.rollE{
-  animation-name:tumbleE;
-}
-
-@keyframes tumbleA{
-  0%{
-    transform:
-      translate(-125px,-100px)
-      rotateX(0deg)
-      rotateY(0deg)
-      rotateZ(0deg)
-      scale(.65);
-  }
-
-  35%{
-    transform:
-      translate(-45px,45px)
-      rotateX(310deg)
-      rotateY(160deg)
-      rotateZ(190deg)
-      scale(1.12);
-  }
-
-  70%{
-    transform:
-      translate(35px,-20px)
-      rotateX(590deg)
-      rotateY(350deg)
-      rotateZ(390deg)
-      scale(1.05);
-  }
-
-  100%{
-    transform:
-      translate(0,0)
-      rotateX(760deg)
-      rotateY(520deg)
-      rotateZ(480deg)
-      scale(1);
-  }
-}
-
-@keyframes tumbleB{
-  0%{
-    transform:
-      translate(130px,-85px)
-      rotateX(0)
-      rotateY(0)
-      rotateZ(0)
-      scale(.65);
-  }
-
-  30%{
-    transform:
-      translate(55px,40px)
-      rotateX(240deg)
-      rotateY(330deg)
-      rotateZ(160deg)
-      scale(1.12);
-  }
-
-  70%{
-    transform:
-      translate(-35px,-30px)
-      rotateX(560deg)
-      rotateY(190deg)
-      rotateZ(400deg)
-      scale(1.06);
-  }
-
-  100%{
-    transform:
-      translate(0,0)
-      rotateX(780deg)
-      rotateY(490deg)
-      rotateZ(610deg)
-      scale(1);
-  }
-}
-
-@keyframes tumbleC{
-  0%{
-    transform:
-      translate(-110px,100px)
-      rotateX(0)
-      rotateY(0)
-      rotateZ(0)
-      scale(.65);
-  }
-
-  32%{
-    transform:
-      translate(35px,-55px)
-      rotateX(350deg)
-      rotateY(190deg)
-      rotateZ(270deg)
-      scale(1.12);
-  }
-
-  70%{
-    transform:
-      translate(65px,25px)
-      rotateX(620deg)
-      rotateY(430deg)
-      rotateZ(110deg)
-      scale(1.05);
-  }
-
-  100%{
-    transform:
-      translate(0,0)
-      rotateX(900deg)
-      rotateY(610deg)
-      rotateZ(470deg)
-      scale(1);
-  }
-}
-
-@keyframes tumbleD{
-  0%{
-    transform:
-      translate(105px,100px)
-      rotateX(0)
-      rotateY(0)
-      rotateZ(0)
-      scale(.65);
-  }
-
-  32%{
-    transform:
-      translate(-40px,-40px)
-      rotateX(290deg)
-      rotateY(300deg)
-      rotateZ(130deg)
-      scale(1.12);
-  }
-
-  70%{
-    transform:
-      translate(-65px,30px)
-      rotateX(650deg)
-      rotateY(220deg)
-      rotateZ(380deg)
-      scale(1.06);
-  }
-
-  100%{
-    transform:
-      translate(0,0)
-      rotateX(820deg)
-      rotateY(560deg)
-      rotateZ(650deg)
-      scale(1);
-  }
-}
-
-@keyframes tumbleE{
-  0%{
-    transform:
-      translate(0,-120px)
-      rotateX(0)
-      rotateY(0)
-      rotateZ(0)
-      scale(.65);
-  }
-
-  30%{
-    transform:
-      translate(-70px,25px)
-      rotateX(360deg)
-      rotateY(230deg)
-      rotateZ(200deg)
-      scale(1.12);
-  }
-
-  70%{
-    transform:
-      translate(50px,45px)
-      rotateX(690deg)
-      rotateY(440deg)
-      rotateZ(430deg)
-      scale(1.06);
-  }
-
-  100%{
-    transform:
-      translate(0,0)
-      rotateX(940deg)
-      rotateY(650deg)
-      rotateZ(570deg)
-      scale(1);
-  }
-}
-
-/* CONTROLS */
+/* =========================
+   BUTTONS
+========================= */
 
 .controls{
   display:flex;
@@ -698,8 +712,7 @@ button:disabled{
   border-radius:13px;
   font-size:18px;
 
-  background:
-    linear-gradient(#f0a72c,#a95e07);
+  background:linear-gradient(#f0a72c,#a95e07);
 
   border:3px solid #ffdc70;
 
@@ -707,7 +720,9 @@ button:disabled{
     0 0 20px #ffbd3d55;
 }
 
-/* RULES */
+/* =========================
+   RULES
+========================= */
 
 .rules{
   margin-top:8px;
@@ -723,7 +738,9 @@ button:disabled{
   line-height:1.45;
 }
 
-/* CHAT */
+/* =========================
+   CHAT
+========================= */
 
 .chatBox{
   margin-top:8px;
@@ -792,7 +809,9 @@ button:disabled{
   padding:10px;
 }
 
-/* LOG */
+/* =========================
+   LOG
+========================= */
 
 .log{
   margin-top:8px;
@@ -815,7 +834,9 @@ button:disabled{
   border-bottom:1px solid #ffffff0d;
 }
 
-/* MOBILE */
+/* =========================
+   MOBILE
+========================= */
 
 @media(max-width:600px){
 
@@ -832,14 +853,13 @@ button:disabled{
   }
 
   .diceArea{
-    min-height:290px;
+    min-height:300px;
   }
 
   .diceTray{
-    min-height:290px;
-    gap:11px;
-    padding-left:8px;
-    padding-right:8px;
+    min-height:300px;
+    gap:10px;
+    padding:70px 7px 24px;
   }
 
   .die{
@@ -848,7 +868,9 @@ button:disabled{
     flex-basis:67px;
   }
 
-  .p1,.p2,.p3,.p4,.p5,.p6,.p7,.p8,.p9{
+  .p1,.p2,.p3,
+  .p4,.p5,.p6,
+  .p7,.p8,.p9{
     transform:scale(.85);
   }
 
@@ -969,9 +991,9 @@ button:disabled{
       <br><br>
 
       <b>Volle bak:</b>
-      vijf dezelfde doelstenen betekent dat alle vijf tellen.
-      Daarna krijg je automatisch een nieuwe worp met vijf nieuwe dobbelstenen.
-      Dit gaat door zolang je opnieuw doelstenen gooit.
+      vijf dezelfde doelstenen worden verwerkt.
+      Daarna krijg je automatisch vijf nieuwe dobbelstenen.
+      Dit gaat door zolang er nieuwe doelstenen worden gegooid.
 
     </div>
 
@@ -1016,7 +1038,6 @@ button:disabled{
 <script>
 
 let state=null;
-let lastRollSeq=-1;
 let chatOpen=false;
 
 const audio={
@@ -1028,19 +1049,29 @@ function sound(type){
   try{
 
     if(!audio.ctx){
-      audio.ctx =
-        new (window.AudioContext ||
-             window.webkitAudioContext)();
+
+      audio.ctx=
+        new(
+          window.AudioContext ||
+          window.webkitAudioContext
+        )();
+
     }
 
-    if(audio.ctx.state==="suspended"){
+    if(
+      audio.ctx.state===
+      "suspended"
+    ){
       audio.ctx.resume();
     }
 
     const ctx=audio.ctx;
 
-    const osc=ctx.createOscillator();
-    const gain=ctx.createGain();
+    const osc=
+      ctx.createOscillator();
+
+    const gain=
+      ctx.createGain();
 
     osc.connect(gain);
     gain.connect(ctx.destination);
@@ -1050,7 +1081,7 @@ function sound(type){
 
     if(type==="roll"){
       frequency=120;
-      duration=.15;
+      duration=.16;
       osc.type="triangle";
     }
 
@@ -1074,6 +1105,9 @@ function sound(type){
       duration=.2;
     }
 
+    osc.frequency.value=
+      frequency;
+
     gain.gain.setValueAtTime(
       .001,
       ctx.currentTime
@@ -1089,12 +1123,12 @@ function sound(type){
       ctx.currentTime+duration
     );
 
-    osc.frequency.value=frequency;
-
     osc.start();
 
     osc.stop(
-      ctx.currentTime+duration+.02
+      ctx.currentTime+
+      duration+
+      .02
     );
 
   }catch(e){}
@@ -1116,11 +1150,17 @@ function api(url,body){
   return fetch(
     url,
     {
-      method:body ? "POST" : "GET",
+      method:
+        body
+          ? "POST"
+          : "GET",
 
       headers:
         body
-          ? {"Content-Type":"application/json"}
+          ? {
+              "Content-Type":
+                "application/json"
+            }
           : {},
 
       body:
@@ -1128,11 +1168,16 @@ function api(url,body){
           ? JSON.stringify(body)
           : undefined
     }
-  ).then(r=>r.json());
+  ).then(
+    response=>
+      response.json()
+  );
 
 }
 
-/* PIP POSITIES */
+/* =========================
+   PIPS
+========================= */
 
 function pipPositions(value){
 
@@ -1144,11 +1189,29 @@ function pipPositions(value){
 
     3:["p1","p5","p9"],
 
-    4:["p1","p3","p7","p9"],
+    4:[
+      "p1",
+      "p3",
+      "p7",
+      "p9"
+    ],
 
-    5:["p1","p3","p5","p7","p9"],
+    5:[
+      "p1",
+      "p3",
+      "p5",
+      "p7",
+      "p9"
+    ],
 
-    6:["p1","p3","p4","p6","p7","p9"]
+    6:[
+      "p1",
+      "p3",
+      "p4",
+      "p6",
+      "p7",
+      "p9"
+    ]
 
   };
 
@@ -1156,7 +1219,9 @@ function pipPositions(value){
 
 }
 
-/* DOBBELSTEEN */
+/* =========================
+   DICE
+========================= */
 
 function createDie(
   value,
@@ -1167,44 +1232,58 @@ function createDie(
   selectable
 ){
 
-  const die=document.createElement("div");
+  const die=
+    document.createElement(
+      "div"
+    );
 
   let classes="die";
 
   if(rolling){
 
-    classes += " rolling ";
+    classes+=" rolling ";
 
-    classes +=
-      ["rollA","rollB","rollC","rollD","rollE"]
-      [index%5];
+    classes+=
+      [
+        "rollA",
+        "rollB",
+        "rollC",
+        "rollD",
+        "rollE"
+      ][index%5];
 
   }
 
   if(held){
-    classes += " held";
+    classes+=" held";
   }
 
   if(settled){
-    classes += " settled";
+    classes+=" settled";
   }
 
   if(selectable){
-    classes += " selectable";
+    classes+=" selectable";
   }
 
   die.className=classes;
 
-  pipPositions(value).forEach(position=>{
+  pipPositions(value)
+    .forEach(
+      position=>{
 
-    const pip=document.createElement("span");
+        const pip=
+          document.createElement(
+            "span"
+          );
 
-    pip.className=
-      "pip " + position;
+        pip.className=
+          "pip "+position;
 
-    die.appendChild(pip);
+        die.appendChild(pip);
 
-  });
+      }
+    );
 
   if(selectable){
 
@@ -1221,29 +1300,42 @@ function createDie(
 
 }
 
-/* DOBBELSTENEN TEKENEN */
+/* =========================
+   RENDER DICE
+========================= */
 
 function renderDice(){
 
-  if(!state) return;
+  if(!state){
+    return;
+  }
 
   const tray=
-    document.getElementById("diceTray");
+    document.getElementById(
+      "diceTray"
+    );
 
-  const animate =
-    state.rollSeq !== lastRollSeq;
+  const animate=
+    state.rollSeq>
+    (
+      state.lastRenderedRollSeq ??
+      -1
+    );
 
   tray.innerHTML="";
 
-  for(let i=0;i<5;i++){
+  for(
+    let i=0;
+    i<5;
+    i++
+  ){
 
-    const held=!!state.held[i];
-    const settled=!!state.settled[i];
+    const held=
+      !!state.held[i];
 
-    /*
-      Alleen nieuwe losse stenen animeren.
-      Vastgezette stenen blijven volledig stil.
-    */
+    const settled=
+      !!state.settled[i];
+
     const rolling=
       animate &&
       !held &&
@@ -1251,58 +1343,76 @@ function renderDice(){
 
     const selectable=
       state.phase==="main" &&
-      state.me===state.current &&
+      state.me===
+        state.current &&
       state.hasRolled &&
-      !held;
+      !held &&
+      state.mustHold;
 
-    const die=createDie(
-      state.dice[i],
-      i,
-      rolling,
-      held,
-      settled,
-      selectable
+    tray.appendChild(
+      createDie(
+        state.dice[i],
+        i,
+        rolling,
+        held,
+        settled,
+        selectable
+      )
     );
-
-    tray.appendChild(die);
 
   }
 
+  state.lastRenderedRollSeq=
+    state.rollSeq;
+
 }
 
-/* SPELERS */
+/* =========================
+   PLAYERS
+========================= */
 
 function renderPlayers(){
 
   const el=
-    document.getElementById("players");
+    document.getElementById(
+      "players"
+    );
 
   el.innerHTML="";
 
-  if(!state) return;
+  if(!state){
+    return;
+  }
 
   state.players.forEach(
     (p,index)=>{
 
       const div=
-        document.createElement("div");
+        document.createElement(
+          "div"
+        );
 
       div.className=
-        "player " +
-        (index===state.current
-          ? "active "
-          : "") +
-        (!p.active
-          ? "off"
-          : "");
+        "player "+
+        (
+          index===
+          state.current
+            ? "active "
+            : ""
+        )+
+        (
+          !p.active
+            ? "off"
+            : ""
+        );
 
       div.innerHTML=
-        '<div class="pname">' +
-        esc(p.name) +
-        '</div>' +
-
-        '<div class="money">€ ' +
-        Number(p.money).toFixed(2) +
+        '<div class="pname">'+
+        esc(p.name)+
+        '</div>'+
+        '<div class="money">€ '+
+        Number(p.money)
+          .toFixed(2)+
         '</div>';
 
       el.appendChild(div);
@@ -1312,63 +1422,87 @@ function renderPlayers(){
 
 }
 
-/* CHAT */
+/* =========================
+   CHAT
+========================= */
 
 function renderChat(){
 
   const el=
-    document.getElementById("chatMessages");
+    document.getElementById(
+      "chatMessages"
+    );
 
   if(!state){
+
     el.innerHTML="";
+
     return;
+
   }
 
   el.innerHTML=
-    state.chat.map(
-      x=>
-        '<div class="chatLine">' +
-        '<b>' +
-        esc(x.name) +
-        ':</b> ' +
-        esc(x.text) +
-        '</div>'
-    ).join("");
+    state.chat
+      .map(
+        item=>
+          '<div class="chatLine">'+
+          '<b>'+
+          esc(item.name)+
+          ':</b> '+
+          esc(item.text)+
+          '</div>'
+      )
+      .join("");
 
-  el.scrollTop=el.scrollHeight;
+  el.scrollTop=
+    el.scrollHeight;
 
 }
 
-/* LOG */
+/* =========================
+   LOG
+========================= */
 
 function renderLog(){
 
   const el=
-    document.getElementById("log");
+    document.getElementById(
+      "log"
+    );
 
   if(!state){
+
     el.innerHTML="";
+
     return;
+
   }
 
   el.innerHTML=
-    state.log.map(
-      x=>
-        "<div>" +
-        esc(x) +
-        "</div>"
-    ).join("");
+    state.log
+      .map(
+        item=>
+          "<div>"+
+          esc(item)+
+          "</div>"
+      )
+      .join("");
 
 }
 
-/* UI */
+/* =========================
+   APPLY
+========================= */
 
 function apply(){
 
-  if(!state) return;
+  if(!state){
+    return;
+  }
 
   const mine=
-    state.me===state.current;
+    state.me===
+    state.current;
 
   const main=
     state.phase==="main";
@@ -1376,41 +1510,58 @@ function apply(){
   const round=
     state.phase==="round";
 
-  const turnPlayer=
-    state.players[state.current];
+  const currentPlayer=
+    state.players[
+      state.current
+    ];
 
-  document.getElementById("turn").textContent=
-    turnPlayer
-      ? "🎯 " +
-        turnPlayer.name +
+  document.getElementById(
+    "turn"
+  ).textContent=
+    currentPlayer
+      ? "🎯 "+
+        currentPlayer.name+
         " is aan de beurt"
       : "";
 
-  document.getElementById("message").textContent=
+  document.getElementById(
+    "message"
+  ).textContent=
     state.banner || "";
 
   const targetBox=
-    document.getElementById("targetBox");
-
-  const actionText=
-    document.getElementById("actionText");
+    document.getElementById(
+      "targetBox"
+    );
 
   const targetNumber=
-    document.getElementById("targetNumber");
+    document.getElementById(
+      "targetNumber"
+    );
+
+  const actionText=
+    document.getElementById(
+      "actionText"
+    );
 
   if(round){
 
-    targetBox.classList.add("show");
+    targetBox.classList.add(
+      "show"
+    );
 
     targetNumber.textContent=
-      state.target +
+      state.target+
       " – DOELSTEEN";
 
-    if(state.mode==="earn"){
+    if(
+      state.mode===
+      "earn"
+    ){
 
       actionText.textContent=
-        "VERDIENEN: " +
-        state.target +
+        "VERDIENEN: "+
+        state.target+
         "'EN";
 
       actionText.className=
@@ -1419,8 +1570,8 @@ function apply(){
     }else{
 
       actionText.textContent=
-        "BETALEN: " +
-        state.target +
+        "BETALEN: "+
+        state.target+
         "'EN";
 
       actionText.className=
@@ -1430,7 +1581,9 @@ function apply(){
 
   }else{
 
-    targetBox.classList.remove("show");
+    targetBox.classList.remove(
+      "show"
+    );
 
   }
 
@@ -1448,12 +1601,41 @@ function apply(){
       ? "flex"
       : "none";
 
-  document.getElementById(
-    "begin"
-  ).disabled=
+  const beginButton=
+    document.getElementById(
+      "begin"
+    );
+
+  /*
+    MINIMAAL 2 SPELERS
+  */
+  const playerCount=
+    state.players.filter(
+      p=>p.active
+    ).length;
+
+  beginButton.disabled=
     !mine ||
     !main ||
-    state.hasRolled;
+    state.hasRolled ||
+    playerCount<2;
+
+  if(
+    playerCount<2 &&
+    mine &&
+    main &&
+    !state.hasRolled
+  ){
+
+    beginButton.textContent=
+      "👥 WACHT OP SPELER";
+
+  }else{
+
+    beginButton.textContent=
+      "🎲 BEGIN WORP";
+
+  }
 
   document.getElementById(
     "reroll"
@@ -1479,19 +1661,21 @@ function apply(){
     !main ||
     !state.canUndo;
 
-  const roundRoll=
+  const roundButton=
     document.getElementById(
       "roundRoll"
     );
 
   if(round){
 
-    roundRoll.textContent=
-      state.mode==="earn"
+    roundButton.textContent=
+      state.mode===
+      "earn"
         ? "🎲 GOOI VOOR VERDIENEN"
         : "🎲 GOOI VOOR BETALEN";
 
-    roundRoll.disabled=!mine;
+    roundButton.disabled=
+      !mine;
 
   }
 
@@ -1502,7 +1686,9 @@ function apply(){
 
 }
 
-/* ACTIE */
+/* =========================
+   ACTION
+========================= */
 
 async function act(action){
 
@@ -1511,7 +1697,9 @@ async function act(action){
     action==="reroll" ||
     action==="roundRoll"
   ){
+
     sound("roll");
+
   }
 
   try{
@@ -1519,12 +1707,17 @@ async function act(action){
     const result=
       await api(
         "/api/action",
-        {action}
+        {
+          action
+        }
       );
 
     if(result.error){
 
-      alert(result.error);
+      alert(
+        result.error
+      );
+
       return;
 
     }
@@ -1532,30 +1725,41 @@ async function act(action){
     state=result;
 
     if(result.sound){
-      sound(result.sound);
+      sound(
+        result.sound
+      );
     }
 
     apply();
 
-  }catch(e){
+  }catch(error){
 
-    alert("Verbinding mislukt.");
+    alert(
+      "Verbinding mislukt."
+    );
 
   }
 
 }
 
-/* DOBBELSTEEN VASTHOUDEN */
+/* =========================
+   HOLD DIE
+========================= */
 
 async function holdDie(index){
 
-  if(!state) return;
+  if(!state){
+    return;
+  }
 
   if(
     state.phase!=="main" ||
-    state.me!==state.current
+    state.me!==state.current ||
+    !state.mustHold
   ){
+
     return;
+
   }
 
   if(state.held[index]){
@@ -1577,7 +1781,10 @@ async function holdDie(index){
 
     if(result.error){
 
-      alert(result.error);
+      alert(
+        result.error
+      );
+
       return;
 
     }
@@ -1586,22 +1793,29 @@ async function holdDie(index){
 
     apply();
 
-  }catch(e){
+  }catch(error){
 
-    alert("Verbinding mislukt.");
+    alert(
+      "Verbinding mislukt."
+    );
 
   }
 
 }
 
-/* CHAT */
+/* =========================
+   CHAT
+========================= */
 
 function toggleChat(){
 
-  chatOpen=!chatOpen;
+  chatOpen=
+    !chatOpen;
 
   document
-    .getElementById("chatBody")
+    .getElementById(
+      "chatBody"
+    )
     .classList.toggle(
       "open",
       chatOpen
@@ -1619,7 +1833,9 @@ async function sendChat(){
   const text=
     input.value.trim();
 
-  if(!text) return;
+  if(!text){
+    return;
+  }
 
   input.value="";
 
@@ -1628,12 +1844,17 @@ async function sendChat(){
     const result=
       await api(
         "/api/chat",
-        {text}
+        {
+          text
+        }
       );
 
     if(result.error){
 
-      alert(result.error);
+      alert(
+        result.error
+      );
+
       return;
 
     }
@@ -1642,44 +1863,52 @@ async function sendChat(){
 
     renderChat();
 
-  }catch(e){}
+  }catch(error){}
 
 }
 
 document
-  .getElementById("chatInput")
+  .getElementById(
+    "chatInput"
+  )
   .addEventListener(
     "keydown",
-    e=>{
-      if(e.key==="Enter"){
+    event=>{
+
+      if(
+        event.key===
+        "Enter"
+      ){
+
         sendChat();
+
       }
+
     }
   );
 
-/* REFRESH */
+/* =========================
+   REFRESH
+========================= */
 
 async function refresh(){
 
   try{
 
     const result=
-      await api("/api/state");
+      await api(
+        "/api/state"
+      );
 
     if(result.error){
       return;
     }
 
     if(
-      state &&
-      result.version!==state.version
+      !state ||
+      result.version!==
+      state.version
     ){
-
-      state=result;
-
-      apply();
-
-    }else if(!state){
 
       state=result;
 
@@ -1687,11 +1916,13 @@ async function refresh(){
 
     }
 
-  }catch(e){}
+  }catch(error){}
 
 }
 
-/* START */
+/* =========================
+   BOOT
+========================= */
 
 async function boot(){
 
@@ -1713,8 +1944,8 @@ async function boot(){
 
     name=
       name
-      .trim()
-      .slice(0,20);
+        .trim()
+        .slice(0,20);
 
     if(!name){
       name="Speler";
@@ -1760,9 +1991,6 @@ async function boot(){
 
     state=result;
 
-    lastRollSeq=
-      result.rollSeq;
-
     apply();
 
     setInterval(
@@ -1770,7 +1998,7 @@ async function boot(){
       600
     );
 
-  }catch(e){
+  }catch(error){
 
     document.getElementById(
       "message"
@@ -1788,9 +2016,9 @@ boot();
 </body>
 </html>`;
 
-/* =========================
-   SERVER FUNCTIES
-========================= */
+/* =========================================================
+   SERVER
+========================================================= */
 
 function json(res,data,status=200){
 
@@ -1839,6 +2067,7 @@ function readBody(req){
       req.on(
         "data",
         chunk=>{
+
           data+=chunk;
 
           if(data.length>1000000){
@@ -1852,6 +2081,7 @@ function readBody(req){
             req.destroy();
 
           }
+
         }
       );
 
@@ -1867,7 +2097,7 @@ function readBody(req){
                 : {}
             );
 
-          }catch(e){
+          }catch(error){
 
             resolve({});
 
@@ -1894,7 +2124,7 @@ function randomId(){
 
 }
 
-function rollDie(){
+function die(){
 
   return Math.floor(
     Math.random()*6
@@ -1902,9 +2132,9 @@ function rollDie(){
 
 }
 
-/* =========================
+/* =========================================================
    ROOM
-========================= */
+========================================================= */
 
 function createRoom(code){
 
@@ -1923,11 +2153,19 @@ function createRoom(code){
     ],
 
     held:[
-      false,false,false,false,false
+      false,
+      false,
+      false,
+      false,
+      false
     ],
 
     settled:[
-      false,false,false,false,false
+      false,
+      false,
+      false,
+      false,
+      false
     ],
 
     hasRolled:false,
@@ -1941,7 +2179,7 @@ function createRoom(code){
     mode:null,
 
     banner:
-      "Klaar om te spelen.",
+      "Wacht op spelers...",
 
     version:1,
 
@@ -1971,14 +2209,15 @@ function getRoom(code){
 
 }
 
-/* =========================
+/* =========================================================
    SESSION
-========================= */
+========================================================= */
 
 function getSession(req){
 
   const cookie=
-    req.headers.cookie || "";
+    req.headers.cookie ||
+    "";
 
   const match=
     cookie.match(
@@ -1997,7 +2236,7 @@ function getSession(req){
 
 }
 
-function setSessionCookie(
+function setCookie(
   res,
   sid
 ){
@@ -2043,14 +2282,15 @@ function getPlayer(req){
   return {
     room,
     index,
-    player:room.players[index]
+    player:
+      room.players[index]
   };
 
 }
 
-/* =========================
+/* =========================================================
    STATE
-========================= */
+========================================================= */
 
 function publicState(
   room,
@@ -2125,13 +2365,14 @@ function bump(room){
 
 }
 
-/* =========================
-   LOG / CHAT
-========================= */
+function addLog(
+  room,
+  text
+){
 
-function log(room,text){
-
-  room.log.unshift(text);
+  room.log.unshift(
+    text
+  );
 
   if(room.log.length>50){
     room.log.length=50;
@@ -2139,7 +2380,7 @@ function log(room,text){
 
 }
 
-function chat(
+function addChat(
   room,
   name,
   text
@@ -2157,21 +2398,21 @@ function chat(
 
 }
 
-/* =========================
+/* =========================================================
    PLAYERS
-========================= */
+========================================================= */
 
-function activePlayers(room){
+function activeCount(room){
 
   return room.players.filter(
     p=>p.active
-  );
+  ).length;
 
 }
 
 function nextPlayer(room){
 
-  if(room.players.length===0){
+  if(!room.players.length){
     return;
   }
 
@@ -2193,7 +2434,8 @@ function nextPlayer(room){
       room.players[index].active
     ){
 
-      room.current=index;
+      room.current=
+        index;
 
       return;
 
@@ -2203,9 +2445,9 @@ function nextPlayer(room){
 
 }
 
-/* =========================
+/* =========================================================
    MONEY
-========================= */
+========================================================= */
 
 function transfer(
   room,
@@ -2228,16 +2470,20 @@ function transfer(
         p.active
     );
 
-  for(const player of others){
+  for(
+    const player of others
+  ){
 
     if(earn){
 
       player.money+=amount;
+
       current.money-=amount;
 
     }else{
 
       player.money-=amount;
+
       current.money+=amount;
 
     }
@@ -2246,9 +2492,9 @@ function transfer(
 
 }
 
-/* =========================
-   RESET TURN
-========================= */
+/* =========================================================
+   TURN
+========================================================= */
 
 function resetTurn(room){
 
@@ -2259,11 +2505,19 @@ function resetTurn(room){
   ];
 
   room.held=[
-    false,false,false,false,false
+    false,
+    false,
+    false,
+    false,
+    false
   ];
 
   room.settled=[
-    false,false,false,false,false
+    false,
+    false,
+    false,
+    false,
+    false
   ];
 
   room.hasRolled=false;
@@ -2284,39 +2538,38 @@ function finishTurn(room){
 
   nextPlayer(room);
 
-  const p=
-    room.players[room.current];
+  const player=
+    room.players[
+      room.current
+    ];
 
   room.banner=
-    p
-      ? p.name+
+    player
+      ? player.name+
         " is aan de beurt."
-      : "Klaar.";
+      : "Wacht op spelers.";
 
   bump(room);
 
 }
 
-/* =========================
+/* =========================================================
    TARGET
-========================= */
+========================================================= */
 
-function getTarget(total){
-
-  /*
-    < 11 = VERDIENEN richting 11
-    > 24 = VERDIENEN richting 24
-    11 t/m 24 = BETALEN
-  */
+function targetFor(total){
 
   if(total<11){
 
     return {
-      target:Math.min(
-        6,
-        11-total
-      ),
-      mode:"earn"
+      target:
+        Math.min(
+          6,
+          11-total
+        ),
+
+      mode:
+        "earn"
     };
 
   }
@@ -2324,11 +2577,14 @@ function getTarget(total){
   if(total>24){
 
     return {
-      target:Math.min(
-        6,
-        total-24
-      ),
-      mode:"earn"
+      target:
+        Math.min(
+          6,
+          total-24
+        ),
+
+      mode:
+        "earn"
     };
 
   }
@@ -2340,54 +2596,83 @@ function getTarget(total){
     );
 
   return {
-    target:Math.min(
-      6,
-      distance
-    ),
-    mode:"pay"
+
+    target:
+      Math.min(
+        6,
+        distance
+      ),
+
+    mode:
+      "pay"
+
   };
 
 }
-
-/* =========================
-   VOLLE BAK
-========================= */
 
 function fullHouse(room){
 
   return room.dice.every(
     value=>
-      value===room.dice[0]
+      value===
+      room.dice[0]
   );
 
 }
 
-/* =========================
+/* =========================================================
    BEGIN
-========================= */
+========================================================= */
 
 function begin(room){
+
+  /*
+    SERVER-SIDE:
+    minimaal twee spelers.
+  */
+  if(
+    activeCount(room)<2
+  ){
+
+    throw new Error(
+      "Er moeten minimaal 2 spelers zijn om te beginnen."
+    );
+
+  }
 
   room.phase="main";
 
   room.dice=[
-    rollDie(),
-    rollDie(),
-    rollDie(),
-    rollDie(),
-    rollDie()
+    die(),
+    die(),
+    die(),
+    die(),
+    die()
   ];
 
   room.held=[
-    false,false,false,false,false
+    false,
+    false,
+    false,
+    false,
+    false
   ];
 
   room.settled=[
-    false,false,false,false,false
+    false,
+    false,
+    false,
+    false,
+    false
   ];
 
   room.hasRolled=true;
 
+  /*
+    VERPLICHT:
+    na deze worp eerst minstens
+    één steen aantikken.
+  */
   room.mustHold=true;
 
   room.canUndo=false;
@@ -2396,9 +2681,9 @@ function begin(room){
 
   room.banner=
     room.players[room.current].name+
-    " heeft gegooid. Tik minimaal één steen aan om hem vast te houden.";
+    " heeft gegooid. Tik minimaal één dobbelsteen aan.";
 
-  log(
+  addLog(
     room,
     room.players[room.current].name+
     " begint de beurt."
@@ -2408,9 +2693,9 @@ function begin(room){
 
 }
 
-/* =========================
-   HOLD DIE
-========================= */
+/* =========================================================
+   HOLD
+========================================================= */
 
 function holdDie(
   room,
@@ -2432,17 +2717,13 @@ function holdDie(
   if(room.held[index]){
 
     throw new Error(
-      "Deze steen staat al vast."
+      "Deze dobbelsteen staat al vast."
     );
 
   }
 
   room.held[index]=true;
 
-  /*
-    Zodra er minimaal één NIEUWE steen
-    is vastgehouden mag opnieuw worden gegooid.
-  */
   room.mustHold=false;
 
   room.canUndo=true;
@@ -2454,15 +2735,12 @@ function holdDie(
 
 }
 
-/* =========================
+/* =========================================================
    UNDO
-========================= */
+========================================================= */
 
-function undoLastHold(room){
+function undoHold(room){
 
-  /*
-    Laatste vastgezette steen zoeken.
-  */
   let index=-1;
 
   for(
@@ -2472,8 +2750,11 @@ function undoLastHold(room){
   ){
 
     if(room.held[i]){
+
       index=i;
+
       break;
+
     }
 
   }
@@ -2493,22 +2774,22 @@ function undoLastHold(room){
   room.canUndo=false;
 
   room.banner=
-    "Vasthouden teruggedraaid. Tik opnieuw minimaal één steen aan.";
+    "Vasthouden teruggedraaid.";
 
   bump(room);
 
 }
 
-/* =========================
-   NORMALE HERWORP
-========================= */
+/* =========================================================
+   NORMAL REROLL
+========================================================= */
 
 function rerollMain(room){
 
   if(room.mustHold){
 
     throw new Error(
-      "Tik eerst minimaal één nieuwe dobbelsteen aan om hem vast te houden."
+      "Tik eerst minimaal één nieuwe dobbelsteen aan."
     );
 
   }
@@ -2516,7 +2797,7 @@ function rerollMain(room){
   if(room.held.every(Boolean)){
 
     throw new Error(
-      "Alle vijf dobbelstenen zijn vastgezet."
+      "Alle vijf dobbelstenen staan vast."
     );
 
   }
@@ -2529,17 +2810,12 @@ function rerollMain(room){
 
     if(!room.held[i]){
 
-      room.dice[i]=rollDie();
+      room.dice[i]=die();
 
     }
 
   }
 
-  /*
-    Na iedere worp moet opnieuw
-    minimaal één nieuwe steen
-    worden vastgezet.
-  */
   room.mustHold=true;
 
   room.canUndo=false;
@@ -2555,9 +2831,9 @@ function rerollMain(room){
 
 }
 
-/* =========================
-   VERDIENEN / BETALEN
-========================= */
+/* =========================================================
+   ROUND RESOLVE
+========================================================= */
 
 function resolveRound(
   room,
@@ -2567,7 +2843,7 @@ function resolveRound(
   let hits=0;
 
   /*
-    Alleen NIEUWE doelstenen tellen.
+    Alleen nieuwe doelstenen tellen.
   */
   for(
     let i=0;
@@ -2595,7 +2871,7 @@ function resolveRound(
   }
 
   /*
-    Geen doelsteen = MIS.
+    Geen doelsteen.
   */
   if(hits===0){
 
@@ -2604,10 +2880,12 @@ function resolveRound(
       room.target+
       " gegooid.";
 
-    log(
+    addLog(
       room,
       room.players[playerIndex].name+
-      " mist de doelsteen."
+      " heeft geen "+
+      room.target+
+      " gegooid."
     );
 
     bump(room);
@@ -2615,22 +2893,14 @@ function resolveRound(
     finishTurn(room);
 
     return {
-      sound:
-        room.mode==="earn"
-          ? "pay"
-          : "pay"
+      sound:"pay"
     };
 
   }
 
   /*
     Iedere nieuwe doelsteen
-    heeft zijn eigen bedrag.
-
-    Bijvoorbeeld:
-    doel = 5
-    1 nieuwe 5 = €2,50
-    3 nieuwe 5'en = €7,50
+    telt afzonderlijk.
   */
   const amountPerDie=
     room.target*0.50;
@@ -2662,7 +2932,7 @@ function resolveRound(
     room.target+
     "'en.";
 
-  log(
+  addLog(
     room,
     room.players[playerIndex].name+
     " "+
@@ -2673,30 +2943,39 @@ function resolveRound(
   );
 
   /*
-    VOLLE BAK / ALLE 5 DOELSTENEN
+    VOLLE BAK:
+    alle vijf zijn doelstenen.
+
+    Dan NIET stoppen.
+
+    Nieuwe vijf dobbelstenen.
   */
   if(
     room.settled.every(Boolean)
   ){
 
-    /*
-      Nieuwe set van 5.
-      Dit is precies de regel die je hebt uitgelegd.
-    */
     room.dice=[
-      rollDie(),
-      rollDie(),
-      rollDie(),
-      rollDie(),
-      rollDie()
+      die(),
+      die(),
+      die(),
+      die(),
+      die()
     ];
 
     room.held=[
-      false,false,false,false,false
+      false,
+      false,
+      false,
+      false,
+      false
     ];
 
     room.settled=[
-      false,false,false,false,false
+      false,
+      false,
+      false,
+      false,
+      false
     ];
 
     room.hasRolled=true;
@@ -2710,9 +2989,9 @@ function resolveRound(
     room.banner+=
       " 🎲 VOLLE BAK! Nieuwe worp met 5 dobbelstenen.";
 
-    log(
+    addLog(
       room,
-      "VOLLE BAK: nieuwe worp met 5 dobbelstenen."
+      "VOLLE BAK → nieuwe worp met 5 dobbelstenen."
     );
 
     bump(room);
@@ -2726,10 +3005,6 @@ function resolveRound(
 
   }
 
-  /*
-    Er zijn nog losse dobbelstenen.
-    De speler kan ze opnieuw gooien.
-  */
   room.hasRolled=true;
 
   room.mustHold=false;
@@ -2747,9 +3022,9 @@ function resolveRound(
 
 }
 
-/* =========================
-   AKKOORD
-========================= */
+/* =========================================================
+   ACCEPT
+========================================================= */
 
 function accept(
   room,
@@ -2766,8 +3041,8 @@ function accept(
 
   const total=
     room.dice.reduce(
-      (sum,value)=>
-        sum+value,
+      (a,b)=>
+        a+b,
       0
     );
 
@@ -2790,7 +3065,7 @@ function accept(
       total+
       "! €0,50 betalen aan iedere tegenstander.";
 
-    log(
+    addLog(
       room,
       room.players[playerIndex].name+
       " gooide "+
@@ -2809,11 +3084,11 @@ function accept(
   }
 
   let result=
-    getTarget(total);
+    targetFor(total);
 
   /*
     VOLLE BAK:
-    vijf dezelfde = 6 verdienen
+    vijf dezelfde = 6 verdienen.
   */
   if(fullHouse(room)){
 
@@ -2822,7 +3097,7 @@ function accept(
       mode:"earn"
     };
 
-    log(
+    addLog(
       room,
       "VOLLE BAK! Doelsteen 6."
     );
@@ -2837,17 +3112,20 @@ function accept(
   room.mode=
     result.mode;
 
-  /*
-    Oude normale holds verdwijnen.
-    In de ronde worden doelstenen
-    automatisch vastgezet.
-  */
   room.held=[
-    false,false,false,false,false
+    false,
+    false,
+    false,
+    false,
+    false
   ];
 
   room.settled=[
-    false,false,false,false,false
+    false,
+    false,
+    false,
+    false,
+    false
   ];
 
   room.mustHold=false;
@@ -2866,7 +3144,7 @@ function accept(
   bump(room);
 
   /*
-    De huidige worp meteen verwerken.
+    De geaccepteerde worp meteen verwerken.
   */
   return resolveRound(
     room,
@@ -2875,9 +3153,9 @@ function accept(
 
 }
 
-/* =========================
-   VERDIENEN/BETALEN OPNIEUW
-========================= */
+/* =========================================================
+   ROUND ROLL
+========================================================= */
 
 function roundRoll(
   room,
@@ -2892,65 +3170,70 @@ function roundRoll(
     i++
   ){
 
-    if(!room.settled[i]){
+    if(
+      !room.settled[i]
+    ){
+
       loose.push(i);
+
     }
 
   }
 
   /*
-    Bij volle bak zijn alle vijf
-    automatisch vervangen door een
-    nieuwe set van vijf.
-
-    Normaliter heeft resolveRound
-    deze nieuwe worp al gemaakt.
+    Veiligheid:
+    als alle vijf doelstenen zijn,
+    nieuwe vijf.
   */
-  if(loose.length===0){
+  if(
+    loose.length===0
+  ){
 
     room.dice=[
-      rollDie(),
-      rollDie(),
-      rollDie(),
-      rollDie(),
-      rollDie()
+      die(),
+      die(),
+      die(),
+      die(),
+      die()
     ];
 
     room.held=[
-      false,false,false,false,false
+      false,
+      false,
+      false,
+      false,
+      false
     ];
 
     room.settled=[
-      false,false,false,false,false
+      false,
+      false,
+      false,
+      false,
+      false
     ];
-
-    room.rollSeq++;
 
   }else{
 
     /*
-      Alleen losse dobbelstenen gooien.
-      Vastgezette doelstenen blijven stil.
+      Alleen losse dobbelstenen.
     */
     for(
       const index of loose
     ){
 
-      room.dice[index]=rollDie();
+      room.dice[index]=die();
 
     }
-
-    room.rollSeq++;
 
   }
 
   room.hasRolled=true;
 
+  room.rollSeq++;
+
   bump(room);
 
-  /*
-    Nieuwe doelstenen meteen verwerken.
-  */
   return resolveRound(
     room,
     playerIndex
@@ -2958,9 +3241,9 @@ function roundRoll(
 
 }
 
-/* =========================
+/* =========================================================
    ACTION
-========================= */
+========================================================= */
 
 function doAction(
   room,
@@ -2990,18 +3273,9 @@ function doAction(
 
   }
 
-  if(action==="begin"){
-
-    if(
-      room.phase!=="main" ||
-      room.hasRolled
-    ){
-
-      throw new Error(
-        "Je kunt nu niet beginnen."
-      );
-
-    }
+  if(
+    action==="begin"
+  ){
 
     begin(room);
 
@@ -3011,15 +3285,36 @@ function doAction(
 
   }
 
-  if(action==="holdDie"){
+  if(
+    action==="holdDie"
+  ){
 
     if(
-      room.phase!=="main" ||
-      !room.hasRolled
+      room.phase!=="main"
     ){
 
       throw new Error(
         "Je kunt nu geen steen vasthouden."
+      );
+
+    }
+
+    if(
+      !room.hasRolled
+    ){
+
+      throw new Error(
+        "Je moet eerst gooien."
+      );
+
+    }
+
+    if(
+      !room.mustHold
+    ){
+
+      throw new Error(
+        "Je hebt al een nieuwe steen vastgehouden."
       );
 
     }
@@ -3035,7 +3330,9 @@ function doAction(
 
   }
 
-  if(action==="undo"){
+  if(
+    action==="undo"
+  ){
 
     if(
       room.phase!=="main"
@@ -3047,15 +3344,7 @@ function doAction(
 
     }
 
-    if(!room.canUndo){
-
-      throw new Error(
-        "Er is niets om terug te draaien."
-      );
-
-    }
-
-    undoLastHold(room);
+    undoHold(room);
 
     return {
       sound:"hold"
@@ -3063,17 +3352,9 @@ function doAction(
 
   }
 
-  if(action==="reroll"){
-
-    if(
-      room.phase!=="main"
-    ){
-
-      throw new Error(
-        "Gebruik de knop voor verdienen/betalen."
-      );
-
-    }
+  if(
+    action==="reroll"
+  ){
 
     rerollMain(room);
 
@@ -3083,17 +3364,9 @@ function doAction(
 
   }
 
-  if(action==="accept"){
-
-    if(
-      room.phase!=="main"
-    ){
-
-      throw new Error(
-        "Je kunt nu niet akkoord gaan."
-      );
-
-    }
+  if(
+    action==="accept"
+  ){
 
     return accept(
       room,
@@ -3102,17 +3375,9 @@ function doAction(
 
   }
 
-  if(action==="roundRoll"){
-
-    if(
-      room.phase!=="round"
-    ){
-
-      throw new Error(
-        "Je kunt nu niet gooien."
-      );
-
-    }
+  if(
+    action==="roundRoll"
+  ){
 
     return roundRoll(
       room,
@@ -3127,9 +3392,9 @@ function doAction(
 
 }
 
-/* =========================
-   HTTP SERVER
-========================= */
+/* =========================================================
+   HTTP
+========================================================= */
 
 const server=
   http.createServer(
@@ -3138,10 +3403,10 @@ const server=
       try{
 
         /*
-          BELANGRIJK:
-          We gebruiken alleen pathname.
-          Daardoor werken ook links met
-          ?utm_source=...
+          URL.pathname gebruiken.
+          Daardoor werkt ook:
+
+          /?utm_source=chatgpt.com
         */
         const url=
           new URL(
@@ -3248,7 +3513,9 @@ const server=
             "casino";
 
           const room=
-            getRoom(roomCode);
+            getRoom(
+              roomCode
+            );
 
           let player=
             room.players.find(
@@ -3267,7 +3534,7 @@ const server=
                 res,
                 {
                   error:
-                    "Deze kamer zit vol. Maximaal 4 spelers."
+                    "Maximaal 4 spelers."
                 },
                 400
               );
@@ -3292,7 +3559,33 @@ const server=
               player
             );
 
-            log(
+            if(
+              room.players.length===1
+            ){
+
+              room.current=0;
+
+            }
+
+            /*
+              Zodra er een tweede speler komt,
+              wordt de eerste speler duidelijk
+              geïnformeerd.
+            */
+            if(
+              activeCount(room)>=2 &&
+              !room.hasRolled
+            ){
+
+              room.banner=
+                room.players[
+                  room.current
+                ].name+
+                " is aan de beurt. Klaar om te spelen.";
+
+            }
+
+            addLog(
               room,
               name+
               " is de kamer binnengekomen."
@@ -3317,7 +3610,7 @@ const server=
             }
           );
 
-          setSessionCookie(
+          setCookie(
             res,
             sid
           );
@@ -3328,7 +3621,8 @@ const server=
               room,
               room.players.findIndex(
                 p=>
-                  p.id===player.id
+                  p.id===
+                  player.id
               )
             )
           );
@@ -3447,7 +3741,7 @@ const server=
 
           }
 
-          chat(
+          addChat(
             gp.room,
             gp.player.name,
             text
@@ -3467,8 +3761,6 @@ const server=
 
         }
 
-        /* NOT FOUND */
-
         return json(
           res,
           {
@@ -3480,7 +3772,9 @@ const server=
 
       }catch(error){
 
-        console.error(error);
+        console.error(
+          error
+        );
 
         return json(
           res,
