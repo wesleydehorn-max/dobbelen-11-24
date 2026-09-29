@@ -1,0 +1,13 @@
+{
+  "name": "dobbelen-11-24-online",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Online multiplayer Dobbelen 11/24",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  }
+}
