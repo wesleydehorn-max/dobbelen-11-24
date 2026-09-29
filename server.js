@@ -6,7 +6,7 @@ const PORT = process.env.PORT || 3000;
 const rooms = new Map();
 const sessions = new Map();
 
-function id() {
+function makeId() {
   return crypto.randomBytes(12).toString("hex");
 }
 
@@ -25,7 +25,7 @@ function cleanCode(code) {
     .slice(0, 6);
 }
 
-function makeCode() {
+function makeRoomCode() {
   let code;
 
   do {
@@ -50,16 +50,42 @@ function findPlayer(room, playerId) {
   });
 }
 
-function newRoom(name) {
+function bump(room) {
+  room.version++;
+}
+
+function addLog(room, text) {
+  room.log.unshift(text);
+  room.log = room.log.slice(0, 40);
+}
+
+function addChat(room, player, text) {
+  const clean = String(text || "")
+    .trim()
+    .slice(0, 160);
+
+  if (!clean) return;
+
+  room.chat.push({
+    id: makeId(),
+    name: player.name,
+    text: clean,
+    at: Date.now()
+  });
+
+  room.chat = room.chat.slice(-50);
+}
+
+function createRoom(name) {
   const player = {
-    id: id(),
+    id: makeId(),
     name: cleanName(name),
     money: 100,
     removed: false
   };
 
   const room = {
-    code: makeCode(),
+    code: makeRoomCode(),
 
     players: [player],
 
@@ -100,7 +126,10 @@ function newRoom(name) {
 
   rooms.set(room.code, room);
 
-  return room;
+  return {
+    room: room,
+    player: player
+  };
 }
 
 function joinRoom(code, name) {
@@ -119,7 +148,7 @@ function joinRoom(code, name) {
   }
 
   const player = {
-    id: id(),
+    id: makeId(),
     name: cleanName(name),
     money: 100,
     removed: false
@@ -129,41 +158,17 @@ function joinRoom(code, name) {
 
   room.banner = "🎰 Klaar om te spelen!";
 
+  addLog(
+    room,
+    "🎩 " + player.name + " is aan tafel gekomen."
+  );
+
   bump(room);
 
   return {
     room: room,
     player: player
   };
-}
-
-function bump(room) {
-  room.version++;
-}
-
-function addLog(room, text) {
-  room.log.unshift(text);
-
-  room.log = room.log.slice(0, 40);
-}
-
-function addChat(room, player, text) {
-  const clean = String(text || "")
-    .trim()
-    .slice(0, 160);
-
-  if (!clean) {
-    return;
-  }
-
-  room.chat.push({
-    id: id(),
-    name: player.name,
-    text: clean,
-    at: Date.now()
-  });
-
-  room.chat = room.chat.slice(-50);
 }
 
 function resetTurn(room) {
@@ -192,15 +197,10 @@ function resetTurn(room) {
   ];
 
   room.hasRolled = false;
-
   room.mustHold = false;
-
   room.target = null;
-
   room.mode = null;
-
   room.needFreshRoll = false;
-
   room.phase = "main";
 }
 
@@ -208,11 +208,15 @@ function startGame(room) {
   const players = activePlayers(room);
 
   if (players.length < 2) {
-    throw new Error("Minimaal 2 spelers nodig.");
+    throw new Error(
+      "Minimaal 2 spelers nodig."
+    );
   }
 
   if (room.started) {
-    throw new Error("Het spel is al gestart.");
+    throw new Error(
+      "Het spel is al gestart."
+    );
   }
 
   players.forEach(function (p) {
@@ -220,18 +224,14 @@ function startGame(room) {
   });
 
   room.started = true;
-
   room.current = 0;
 
-  room.phase = "main";
-
-  room.banner = "🎲 Jouw beurt! Gooi de dobbelstenen.";
-
-  room.log = [];
-
-  room.chat = [];
-
   resetTurn(room);
+
+  room.banner =
+    "🎲 " +
+    players[0].name +
+    " is aan de beurt.";
 
   addLog(
     room,
@@ -246,15 +246,14 @@ function startGame(room) {
 function nextPlayer(room) {
   const players = activePlayers(room);
 
-  if (!players.length) {
-    return;
-  }
+  if (!players.length) return;
 
   const currentIndex = room.current;
 
   for (let i = 1; i <= players.length; i++) {
     const next =
-      (currentIndex + i) % players.length;
+      (currentIndex + i) %
+      players.length;
 
     if (players[next]) {
       room.current = next;
@@ -276,16 +275,10 @@ function rollDie() {
   return Math.floor(Math.random() * 6) + 1;
 }
 
-function rollLoose(room) {
-  for (let i = 0; i < 5; i++) {
-    if (!room.held[i]) {
-      room.dice[i] = rollDie();
-    }
-  }
-}
-
-function allHeld(room) {
-  return room.held.every(Boolean);
+function total(dice) {
+  return dice.reduce(function (sum, value) {
+    return sum + (Number(value) || 0);
+  }, 0);
 }
 
 function countValue(dice, value) {
@@ -294,10 +287,8 @@ function countValue(dice, value) {
   }).length;
 }
 
-function total(dice) {
-  return dice.reduce(function (sum, v) {
-    return sum + (Number(v) || 0);
-  }, 0);
+function allHeld(room) {
+  return room.held.every(Boolean);
 }
 
 function distribute(room, currentPlayer, amount, earning) {
@@ -344,13 +335,12 @@ function beginRoll(room) {
   ];
 
   room.hasRolled = true;
-
   room.mustHold = false;
 
   room.rollSeq++;
 
   room.banner =
-    "🎲 Kies minimaal 1 nieuwe steen om vast te zetten.";
+    "🎲 Zet minimaal 1 nieuwe dobbelsteen vast.";
 
   addLog(
     room,
@@ -364,7 +354,9 @@ function beginRoll(room) {
 
 function rerollMain(room) {
   if (!room.hasRolled) {
-    throw new Error("Je moet eerst gooien.");
+    throw new Error(
+      "Je moet eerst gooien."
+    );
   }
 
   if (room.mustHold) {
@@ -379,18 +371,106 @@ function rerollMain(room) {
     );
   }
 
-  rollLoose(room);
+  for (let i = 0; i < 5; i++) {
+    if (!room.held[i]) {
+      room.dice[i] = rollDie();
+    }
+  }
 
   room.mustHold = true;
-
   room.rollSeq++;
 
   room.banner =
     "🎲 Zet minimaal 1 nieuwe steen vast voor de volgende worp.";
+
+  addLog(
+    room,
+    "🎲 Nieuwe worp: " +
+      room.dice.join(", ") +
+      "."
+  );
 }
 
-function finishSpecial(room, player, sum) {
-  if (sum === 11 || sum === 24) {
+/*
+========================================================
+BEPALING DOELSTEEN
+========================================================
+
+5  -> 6
+6  -> 5
+7  -> 4
+8  -> 3
+9  -> 2
+10 -> 1
+
+11 -> SPECIAL
+
+12 -> 1
+13 -> 2
+14 -> 3
+15 -> 4
+16 -> 5
+17 -> 6
+
+18 -> 6
+19 -> 5
+20 -> 4
+21 -> 3
+22 -> 2
+23 -> 1
+
+24 -> SPECIAL
+
+25 -> 1
+26 -> 2
+27 -> 3
+28 -> 4
+29 -> 5
+30 -> 6
+*/
+
+function getTarget(sum) {
+  if (sum < 11) {
+    return 11 - sum;
+  }
+
+  if (sum > 11 && sum < 18) {
+    return sum - 11;
+  }
+
+  if (sum >= 18 && sum < 24) {
+    return 24 - sum;
+  }
+
+  if (sum > 24) {
+    return sum - 24;
+  }
+
+  return null;
+}
+
+function acceptMain(room, player) {
+  if (!room.hasRolled) {
+    throw new Error(
+      "Je moet eerst gooien."
+    );
+  }
+
+  if (room.mustHold) {
+    throw new Error(
+      "Zet eerst minimaal 1 nieuwe dobbelsteen vast."
+    );
+  }
+
+  const sum = total(room.dice);
+
+  /*
+  ======================================================
+  SPECIALE 11
+  ======================================================
+  */
+
+  if (sum === 11) {
     distribute(
       room,
       player,
@@ -401,43 +481,56 @@ function finishSpecial(room, player, sum) {
     room.banner =
       "💰 " +
       player.name +
-      " heeft " +
-      sum +
-      "! €0,50 naar iedere tegenstander.";
+      " heeft 11! €0,50 naar iedere tegenstander.";
 
     addLog(
       room,
       "💰 " +
         player.name +
-        " gooide " +
-        sum +
-        " en betaalt €0,50 aan iedere tegenstander."
+        " gooide 11 en betaalt €0,50 aan iedere tegenstander."
     );
 
     nextPlayer(room);
 
-    return true;
-  }
-
-  return false;
-}
-
-function acceptMain(room, player) {
-  if (!room.hasRolled) {
-    throw new Error("Je moet eerst gooien.");
-  }
-
-  if (room.mustHold) {
-    throw new Error(
-      "Zet eerst minimaal 1 nieuwe steen vast."
-    );
-  }
-
-  const sum = total(room.dice);
-
-  if (finishSpecial(room, player, sum)) {
     return;
   }
+
+  /*
+  ======================================================
+  SPECIALE 24
+  ======================================================
+  */
+
+  if (sum === 24) {
+    distribute(
+      room,
+      player,
+      0.5,
+      false
+    );
+
+    room.banner =
+      "💰 " +
+      player.name +
+      " heeft 24! €0,50 naar iedere tegenstander.";
+
+    addLog(
+      room,
+      "💰 " +
+        player.name +
+        " gooide 24 en betaalt €0,50 aan iedere tegenstander."
+    );
+
+    nextPlayer(room);
+
+    return;
+  }
+
+  /*
+  ======================================================
+  VOLLE BAK
+  ======================================================
+  */
 
   if (countValue(room.dice, 6) === 5) {
     room.phase = "earnpay";
@@ -465,135 +558,30 @@ function acceptMain(room, player) {
     ];
 
     room.banner =
-      "🎰 VOLLE BAK! Verdienen met 6'en.";
+      "🎰 VOLLE BAK! VERDIENEN: 6’en.";
 
     addLog(
       room,
       "🎰 VOLLE BAK! " +
         player.name +
-        " gaat verdienen met 6'en."
+        " gaat verdienen met 6’en."
     );
 
     return;
   }
 
-  if (sum >= 11 && sum <= 17) {
-    room.target = 11;
+  const target =
+    getTarget(sum);
 
-    room.mode = "earn";
-
-    room.phase = "earnpay";
-
-    room.needFreshRoll = true;
-
-    room.held = [
-      true,
-      true,
-      true,
-      true,
-      true
-    ];
-
-    room.settled = [
-      true,
-      true,
-      true,
-      true,
-      true
-    ];
-
-    room.banner =
-      "💰 VERDIENEN: 11 – gooi voor 11'en.";
-
-    addLog(
-      room,
-      "💰 " +
-        player.name +
-        " kiest verdienen richting 11."
+  if (!target) {
+    throw new Error(
+      "Ongeldige worp."
     );
-
-    return;
   }
 
-  if (sum >= 18 && sum <= 24) {
-    room.target = 24;
+  room.target = target;
 
-    room.mode = "earn";
-
-    room.phase = "earnpay";
-
-    room.needFreshRoll = true;
-
-    room.held = [
-      true,
-      true,
-      true,
-      true,
-      true
-    ];
-
-    room.settled = [
-      true,
-      true,
-      true,
-      true,
-      true
-    ];
-
-    room.banner =
-      "💰 VERDIENEN: 24 – gooi voor 24'en.";
-
-    addLog(
-      room,
-      "💰 " +
-        player.name +
-        " kiest verdienen richting 24."
-    );
-
-    return;
-  }
-
-  if (sum < 11) {
-    room.target = 11;
-
-    room.mode = "earn";
-
-    room.phase = "earnpay";
-
-    room.needFreshRoll = true;
-
-    room.held = [
-      true,
-      true,
-      true,
-      true,
-      true
-    ];
-
-    room.settled = [
-      true,
-      true,
-      true,
-      true,
-      true
-    ];
-
-    room.banner =
-      "💰 VERDIENEN: 11'en.";
-
-    addLog(
-      room,
-      "💰 " +
-        player.name +
-        " gaat verdienen met 11'en."
-    );
-
-    return;
-  }
-
-  room.target = 24;
-
-  room.mode = "pay";
+  room.mode = "earn";
 
   room.phase = "earnpay";
 
@@ -616,17 +604,28 @@ function acceptMain(room, player) {
   ];
 
   room.banner =
-    "💸 BETALEN: 24'en.";
+    "💰 VERDIENEN: " +
+    target +
+    "’EN.";
 
   addLog(
     room,
-    "💸 " +
+    "💰 " +
       player.name +
-      " gaat betalen met 24'en."
+      " gooide " +
+      sum +
+      " en gaat verdienen met " +
+      target +
+      "’en."
   );
 }
 
 function resolveEarnPay(room, player) {
+  /*
+  Bij de eerste verdienworp:
+  altijd een nieuwe set van 5.
+  */
+
   if (room.needFreshRoll) {
     room.dice = [
       rollDie(),
@@ -654,7 +653,16 @@ function resolveEarnPay(room, player) {
 
     room.needFreshRoll = false;
   } else {
-    rollLoose(room);
+    /*
+    Alleen losse dobbelstenen opnieuw gooien.
+    Vastgezette doelstenen blijven staan.
+    */
+
+    for (let i = 0; i < 5; i++) {
+      if (!room.held[i]) {
+        room.dice[i] = rollDie();
+      }
+    }
   }
 
   room.rollSeq++;
@@ -664,22 +672,31 @@ function resolveEarnPay(room, player) {
   const hits = [];
 
   for (let i = 0; i < 5; i++) {
-    if (room.dice[i] === target) {
+    if (
+      room.dice[i] === target &&
+      !room.settled[i]
+    ) {
       hits.push(i);
     }
   }
+
+  /*
+  ======================================================
+  MIS
+  ======================================================
+  */
 
   if (!hits.length) {
     room.banner =
       "❌ MIS! Geen " +
       target +
-      ". De beurt gaat door naar de volgende speler.";
+      ". De beurt gaat naar de volgende speler.";
 
     addLog(
       room,
       "❌ " +
         player.name +
-        " had geen " +
+        " gooide geen " +
         target +
         " en mist."
     );
@@ -689,65 +706,54 @@ function resolveEarnPay(room, player) {
     return;
   }
 
-  const amount = hits.length * 5;
+  /*
+  ======================================================
+  VERDIENEN
+  ======================================================
+  */
+
+  const amount =
+    hits.length * 5;
 
   distribute(
     room,
     player,
     amount,
-    room.mode === "earn"
+    true
   );
 
-  hits.forEach(function (i) {
-    room.held[i] = true;
-    room.settled[i] = true;
+  hits.forEach(function (index) {
+    room.held[index] = true;
+    room.settled[index] = true;
   });
 
-  if (room.mode === "earn") {
-    room.banner =
-      "💰 +€" +
-      amount.toFixed(2) +
-      " — " +
+  room.banner =
+    "💰 +" +
+    euro(amount) +
+    " — " +
+    hits.length +
+    "× " +
+    target +
+    ".";
+
+  addLog(
+    room,
+    "💰 " +
+      player.name +
+      " verdient " +
+      euro(amount) +
+      " met " +
       hits.length +
       "× " +
       target +
-      ".";
+      "."
+  );
 
-    addLog(
-      room,
-      "💰 " +
-        player.name +
-        " verdient €" +
-        amount.toFixed(2) +
-        " met " +
-        hits.length +
-        "× " +
-        target +
-        "."
-    );
-  } else {
-    room.banner =
-      "💸 -€" +
-      amount.toFixed(2) +
-      " — " +
-      hits.length +
-      "× " +
-      target +
-      ".";
-
-    addLog(
-      room,
-      "💸 " +
-        player.name +
-        " betaalt €" +
-        amount.toFixed(2) +
-        " voor " +
-        hits.length +
-        "× " +
-        target +
-        "."
-    );
-  }
+  /*
+  ======================================================
+  VOLLE BAK TIJDENS VERDIENEN
+  ======================================================
+  */
 
   if (hits.length === 5) {
     room.needFreshRoll = true;
@@ -758,9 +764,10 @@ function resolveEarnPay(room, player) {
 }
 
 function publicState(room, me) {
-  const players = activePlayers(room);
+  const players =
+    activePlayers(room);
 
-  const currentPlayer =
+  const current =
     players[room.current] || null;
 
   return {
@@ -774,14 +781,15 @@ function publicState(room, me) {
         me.id === room.admin &&
         players.length >= 2,
 
-      playerCount: players.length,
+      playerCount:
+        players.length,
 
       maxPlayers: 4,
 
-      current: currentPlayer
+      current: current
         ? {
-            id: currentPlayer.id,
-            name: currentPlayer.name
+            id: current.id,
+            name: current.name
           }
         : null,
 
@@ -793,41 +801,54 @@ function publicState(room, me) {
 
       settled: room.settled,
 
-      hasRolled: room.hasRolled,
+      hasRolled:
+        room.hasRolled,
 
-      mustHold: room.mustHold,
+      mustHold:
+        room.mustHold,
 
-      target: room.target,
+      target:
+        room.target,
 
-      mode: room.mode,
+      mode:
+        room.mode,
 
-      needFreshRoll: room.needFreshRoll,
+      needFreshRoll:
+        room.needFreshRoll,
 
-      banner: room.banner,
+      banner:
+        room.banner,
 
-      version: room.version,
+      version:
+        room.version,
 
-      rollSeq: room.rollSeq,
+      rollSeq:
+        room.rollSeq,
 
-      log: room.log,
+      log:
+        room.log,
 
-      chat: room.chat
+      chat:
+        room.chat
     },
 
-    players: players.map(function (p) {
-      return {
-        id: p.id,
-        name: p.name,
-        money: p.money,
-        isAdmin: p.id === room.admin
-      };
-    }),
+    players:
+      players.map(function (p) {
+        return {
+          id: p.id,
+          name: p.name,
+          money: p.money,
+          isAdmin:
+            p.id === room.admin
+        };
+      }),
 
     me: {
       id: me.id,
       name: me.name,
       money: me.money,
-      isAdmin: me.id === room.admin
+      isAdmin:
+        me.id === room.admin
     }
   };
 }
@@ -844,47 +865,62 @@ function json(res, status, data) {
       "*"
   });
 
-  res.end(JSON.stringify(data));
+  res.end(
+    JSON.stringify(data)
+  );
 }
 
 function parseBody(req) {
-  return new Promise(function (resolve, reject) {
-    let body = "";
+  return new Promise(
+    function (resolve, reject) {
+      let body = "";
 
-    req.on("data", function (chunk) {
-      body += chunk;
+      req.on(
+        "data",
+        function (chunk) {
+          body += chunk;
 
-      if (body.length > 100000) {
-        req.destroy();
-      }
-    });
+          if (body.length > 100000) {
+            req.destroy();
+          }
+        }
+      );
 
-    req.on("end", function () {
-      try {
-        resolve(
-          body
-            ? JSON.parse(body)
-            : {}
-        );
-      } catch (e) {
-        reject(
-          new Error(
-            "Ongeldige aanvraag."
-          )
-        );
-      }
-    });
+      req.on(
+        "end",
+        function () {
+          try {
+            resolve(
+              body
+                ? JSON.parse(body)
+                : {}
+            );
+          } catch (e) {
+            reject(
+              new Error(
+                "Ongeldige aanvraag."
+              )
+            );
+          }
+        }
+      );
 
-    req.on("error", reject);
-  });
+      req.on(
+        "error",
+        reject
+      );
+    }
+  );
 }
 
-function cookieSession(req, res) {
+function getSession(req, res) {
   const cookie =
     req.headers.cookie || "";
 
   const match =
-    cookie.match(/sid=([^;]+)/);
+    cookie.match(
+      /sid=([^;]+)/
+    );
 
   let sid =
     match
@@ -897,7 +933,7 @@ function cookieSession(req, res) {
       : null;
 
   if (!session) {
-    sid = id();
+    sid = makeId();
 
     session = {};
 
@@ -917,7 +953,7 @@ function cookieSession(req, res) {
   return session;
 }
 
-function action(
+function performAction(
   room,
   player,
   type,
@@ -929,8 +965,15 @@ function action(
   const current =
     players[room.current];
 
+  /*
+  START
+  */
+
   if (type === "start") {
-    if (player.id !== room.admin) {
+    if (
+      player.id !==
+      room.admin
+    ) {
       throw new Error(
         "Alleen de beheerder kan starten."
       );
@@ -940,6 +983,10 @@ function action(
 
     return;
   }
+
+  /*
+  CHAT
+  */
 
   if (type === "chat") {
     addChat(
@@ -953,27 +1000,37 @@ function action(
     return;
   }
 
+  /*
+  SPELER VERWIJDEREN
+  */
+
   if (type === "remove") {
-    if (player.id !== room.admin) {
+    if (
+      player.id !==
+      room.admin
+    ) {
       throw new Error(
         "Alleen de beheerder kan spelers verwijderen."
       );
     }
 
     const target =
-      room.players.find(function (p) {
-        return (
-          p.id ===
+      room.players.find(
+        function (p) {
+          return (
+            p.id ===
             String(
               data &&
-                data.playerId
+              data.playerId
             )
-        );
-      });
+          );
+        }
+      );
 
     if (
       !target ||
-      target.id === room.admin
+      target.id ===
+      room.admin
     ) {
       throw new Error(
         "Speler kan niet worden verwijderd."
@@ -982,18 +1039,10 @@ function action(
 
     target.removed = true;
 
-    if (
-      room.started &&
-      room.current >=
-        activePlayers(room).length
-    ) {
-      room.current = 0;
-    }
-
     room.banner =
       "👋 " +
       target.name +
-      " is verwijderd uit de tafel.";
+      " is verwijderd.";
 
     bump(room);
 
@@ -1015,8 +1064,15 @@ function action(
     );
   }
 
+  /*
+  GOOIEN
+  */
+
   if (type === "roll") {
-    if (room.phase === "main") {
+    if (
+      room.phase ===
+      "main"
+    ) {
       if (!room.hasRolled) {
         beginRoll(room);
       } else {
@@ -1043,13 +1099,17 @@ function action(
     }
   }
 
+  /*
+  DOBBELSTEEN VASTZETTEN
+  */
+
   if (type === "hold") {
     if (
       room.phase !==
       "main"
     ) {
       throw new Error(
-        "Vastzetten kan alleen tijdens de hoofdworp."
+        "Vastzetten kan nu niet."
       );
     }
 
@@ -1062,13 +1122,11 @@ function action(
     const index =
       Number(
         data &&
-          data.index
+        data.index
       );
 
     if (
-      !Number.isInteger(
-        index
-      ) ||
+      !Number.isInteger(index) ||
       index < 0 ||
       index > 4
     ) {
@@ -1085,6 +1143,11 @@ function action(
 
     room.held[index] = true;
 
+    /*
+    Na iedere worp moet minimaal
+    één nieuwe steen worden vastgezet.
+    */
+
     room.mustHold = false;
 
     room.banner =
@@ -1094,6 +1157,10 @@ function action(
 
     return;
   }
+
+  /*
+  AKKOORD
+  */
 
   if (type === "accept") {
     if (
@@ -1122,13 +1189,14 @@ function action(
 
 const HTML = String.raw`<!DOCTYPE html>
 <html lang="nl">
+
 <head>
 
 <meta charset="UTF-8">
 
 <meta
   name="viewport"
-  content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+  content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"
 >
 
 <title>Dobbelen 11/24</title>
@@ -1150,34 +1218,24 @@ body{
 }
 
 body{
+  padding:8px;
+
   background:
     radial-gradient(
       circle at 50% 0%,
-      #0c5037 0,
-      #062d21 35%,
-      #02150f 100%
+      #0c5037,
+      #062d21 40%,
+      #02150f
     );
-
-  padding:12px;
-}
-
-button,
-input{
-  font:inherit;
-}
-
-button{
-  cursor:pointer;
-  border:0;
-}
-
-.hidden{
-  display:none!important;
 }
 
 .app{
   width:min(100%,900px);
-  margin:0 auto;
+  margin:auto;
+}
+
+.hidden{
+  display:none!important;
 }
 
 .topbar{
@@ -1191,29 +1249,30 @@ button{
   border:2px solid #b88a2b;
   border-radius:18px;
 
-  padding:12px 14px;
-  margin-bottom:12px;
+  padding:12px;
 
-  box-shadow:
-    0 10px 30px #0008;
+  margin-bottom:10px;
+
+  box-shadow:0 10px 30px #0008;
 }
 
 .logo{
-  font-size:25px;
-  font-weight:900;
-  letter-spacing:1px;
-  color:#f5d879;
   text-align:center;
 
-  text-shadow:
-    0 2px 5px #000;
+  font-size:24px;
+  font-weight:900;
+
+  color:#f5d879;
+
+  text-shadow:0 2px 5px #000;
 }
 
 .sublogo{
   text-align:center;
-  font-size:12px;
+
   color:#d8c27d;
-  margin-top:3px;
+
+  font-size:11px;
 }
 
 .panel{
@@ -1227,16 +1286,16 @@ button{
   border:2px solid #b98a2c;
   border-radius:20px;
 
-  padding:18px;
+  padding:14px;
 
   box-shadow:
     0 14px 35px #0009;
 
-  margin-bottom:12px;
+  margin-bottom:10px;
 }
 
 .start-screen{
-  min-height:450px;
+  min-height:430px;
 
   display:flex;
   flex-direction:column;
@@ -1245,69 +1304,69 @@ button{
 
 .start-title{
   text-align:center;
+
   font-size:24px;
   font-weight:900;
+
   color:#f4d574;
-  margin-bottom:22px;
+
+  margin-bottom:20px;
 }
 
 .field{
-  margin-bottom:14px;
+  margin-bottom:12px;
 }
 
 .field label{
   display:block;
+
   font-size:13px;
+
   color:#dcc77e;
-  margin:0 0 6px 3px;
+
+  margin-bottom:5px;
+
   font-weight:bold;
 }
 
 .field input{
   width:100%;
-  padding:14px;
 
-  border-radius:12px;
+  padding:13px;
+
+  border-radius:11px;
+
   border:2px solid #8f6b24;
 
   background:#021b13;
+
   color:#fff;
 
   outline:none;
 }
 
-.field input:focus{
-  border-color:#e5c45e;
-}
-
 .start-buttons{
   display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:10px;
-}
 
-.join-box{
-  margin-top:14px;
-  padding-top:14px;
-  border-top:1px solid #9d792e;
+  grid-template-columns:1fr 1fr;
+
+  gap:8px;
 }
 
 .btn{
-  min-height:48px;
+  min-height:46px;
 
-  padding:12px 15px;
+  padding:11px 14px;
 
   border-radius:12px;
 
   color:#fff;
+
   font-weight:900;
 
   border:2px solid #c59b39;
 
-  box-shadow:
-    0 5px 12px #0007;
-
-  transition:.12s;
+  box-shadow:0 5px 12px #0007;
 }
 
 .btn:active{
@@ -1316,7 +1375,6 @@ button{
 
 .btn:disabled{
   opacity:.4;
-  cursor:not-allowed;
 }
 
 .green{
@@ -1367,44 +1425,50 @@ button{
 }
 
 .room-code{
-  font-size:34px;
   text-align:center;
+
+  font-size:32px;
+
   letter-spacing:6px;
-  color:#f6d875;
+
   font-weight:900;
 
-  text-shadow:
-    0 3px 7px #000;
+  color:#f6d875;
 
-  margin:3px 0 4px;
+  margin-bottom:3px;
 }
 
 .status{
   text-align:center;
+
   color:#8ff1b4;
+
   font-weight:bold;
+
   margin-bottom:12px;
 }
 
 .invite-area{
   text-align:center;
-  margin:0 auto 14px;
+
+  margin-bottom:13px;
 }
 
 .invite-btn{
   width:100%;
-  max-width:390px;
+
+  max-width:380px;
 
   background:
     linear-gradient(
       145deg,
-      #d9ad45,
-      #956516
+      #e0b74f,
+      #986a17
     );
 
   color:#241800;
 
-  border:2px solid #f4d877;
+  border:2px solid #f5d878;
 
   box-shadow:
     0 0 18px #d8ad4533,
@@ -1413,17 +1477,23 @@ button{
 
 .invite-message{
   min-height:18px;
-  margin-top:7px;
+
+  margin-top:6px;
 
   color:#83f0aa;
-  font-size:13px;
+
+  font-size:12px;
+
   font-weight:bold;
 }
 
 .players{
   display:grid;
-  grid-template-columns:repeat(2,1fr);
-  gap:9px;
+
+  grid-template-columns:
+    repeat(2,1fr);
+
+  gap:8px;
 }
 
 .player-card{
@@ -1438,42 +1508,48 @@ button{
 
   border-radius:13px;
 
-  padding:12px;
+  padding:11px;
 
-  min-height:83px;
+  min-height:78px;
 }
 
 .player-name{
   font-weight:900;
-  font-size:15px;
+
+  font-size:14px;
 }
 
 .player-money{
   color:#f1d36c;
+
   font-weight:900;
-  margin-top:6px;
+
+  margin-top:5px;
 }
 
 .admin-tag{
-  font-size:10px;
+  font-size:9px;
+
   color:#f5d46e;
-  margin-left:4px;
+
+  margin-left:3px;
 }
 
 .empty{
   opacity:.5;
-  color:#b8b8b8;
 }
 
 .waiting{
   text-align:center;
 
-  margin-top:15px;
-  padding:13px;
+  margin-top:13px;
+
+  padding:12px;
 
   border-radius:12px;
 
   background:#031b13;
+
   border:1px solid #795c22;
 
   color:#ddd;
@@ -1481,39 +1557,30 @@ button{
 
 .center{
   text-align:center;
-  margin-top:15px;
-}
 
-.admin-tools{
-  display:flex;
-  gap:8px;
-  flex-wrap:wrap;
-  justify-content:center;
-}
-
-.admin-tools .btn{
-  flex:1;
-  min-width:180px;
+  margin-top:13px;
 }
 
 .game-head{
   display:flex;
-  gap:8px;
+
   justify-content:space-between;
+
   align-items:center;
 
-  margin-bottom:10px;
-}
-
-.money{
-  font-size:20px;
-  color:#f3d36e;
-  font-weight:900;
+  margin-bottom:8px;
 }
 
 .turn{
   font-weight:900;
-  color:#fff;
+}
+
+.money{
+  font-size:20px;
+
+  color:#f3d36e;
+
+  font-weight:900;
 }
 
 .banner{
@@ -1525,51 +1592,56 @@ button{
     );
 
   border:2px solid #96732a;
+
   border-radius:14px;
 
-  padding:13px;
+  padding:12px;
 
   text-align:center;
 
   color:#f4d56d;
+
   font-weight:900;
 
-  min-height:48px;
+  min-height:47px;
 
   display:flex;
+
   align-items:center;
+
   justify-content:center;
 
-  margin-bottom:12px;
+  margin-bottom:10px;
 }
 
 .target{
   background:#220d09;
 
   border:2px solid #d5ad45;
+
   border-radius:15px;
 
-  padding:13px;
+  padding:12px;
 
   text-align:center;
 
-  margin-bottom:12px;
-
-  box-shadow:
-    0 0 18px #b88a2b33;
+  margin-bottom:10px;
 }
 
 .target .small{
-  font-size:11px;
+  font-size:10px;
+
   color:#e1c66f;
+
   font-weight:bold;
 }
 
 .target .big{
   font-size:28px;
+
   font-weight:900;
+
   color:#fff;
-  margin-top:2px;
 }
 
 .tray{
@@ -1577,14 +1649,14 @@ button{
 
   border-radius:30px;
 
-  padding:20px 12px 26px;
+  padding:22px 9px 28px;
 
   background:
     radial-gradient(
       ellipse at center,
-      #16704b 0,
-      #0b4b33 48%,
-      #052b1d 100%
+      #16704b,
+      #0b4b33 50%,
+      #052b1d
     );
 
   border:7px solid #9b6d21;
@@ -1594,36 +1666,20 @@ button{
     inset 0 -18px 35px #0008,
     0 10px 25px #0009;
 
-  min-height:230px;
-}
-
-.tray:before{
-  content:"";
-
-  position:absolute;
-
-  left:10%;
-  right:10%;
-  bottom:7px;
-
-  height:16px;
-
-  border-radius:50%;
-
-  background:#0006;
-
-  filter:blur(8px);
+  min-height:215px;
 }
 
 .cup{
   position:absolute;
 
   left:50%;
+
   top:-12px;
 
   transform:translateX(-50%);
 
-  width:90px;
+  width:88px;
+
   height:52px;
 
   border-radius:
@@ -1650,7 +1706,9 @@ button{
   position:absolute;
 
   left:13px;
+
   right:13px;
+
   top:8px;
 
   height:16px;
@@ -1664,6 +1722,7 @@ button{
 
 .dice-grid{
   position:relative;
+
   z-index:3;
 
   display:grid;
@@ -1671,19 +1730,19 @@ button{
   grid-template-columns:
     repeat(5,1fr);
 
-  gap:10px;
+  gap:7px;
 
   align-items:center;
+
   justify-items:center;
 
-  margin-top:38px;
+  margin-top:40px;
 }
 
 .die{
-  width:72px;
-  height:72px;
+  width:70px;
 
-  max-width:100%;
+  height:70px;
 
   border-radius:14px;
 
@@ -1711,11 +1770,9 @@ button{
   grid-template-rows:
     repeat(3,1fr);
 
-  padding:9px;
+  padding:8px;
 
   user-select:none;
-
-  transition:.12s;
 }
 
 .die.held{
@@ -1737,8 +1794,9 @@ button{
   transform:scale(.95);
 }
 
-.die .pip{
+.pip{
   width:11px;
+
   height:11px;
 
   border-radius:50%;
@@ -1750,13 +1808,18 @@ button{
     0 1px 2px #0008;
 
   align-self:center;
+
   justify-self:center;
 }
 
-.d1 .p5{
+/* 1 */
+
+.d1 .p1{
   grid-column:2;
   grid-row:2;
 }
+
+/* 2 */
 
 .d2 .p1{
   grid-column:1;
@@ -1767,6 +1830,8 @@ button{
   grid-column:3;
   grid-row:3;
 }
+
+/* 3 */
 
 .d3 .p1{
   grid-column:1;
@@ -1782,6 +1847,8 @@ button{
   grid-column:3;
   grid-row:3;
 }
+
+/* 4 */
 
 .d4 .p1{
   grid-column:1;
@@ -1802,6 +1869,8 @@ button{
   grid-column:3;
   grid-row:3;
 }
+
+/* 5 */
 
 .d5 .p1{
   grid-column:1;
@@ -1827,6 +1896,8 @@ button{
   grid-column:3;
   grid-row:3;
 }
+
+/* 6 */
 
 .d6 .p1{
   grid-column:1;
@@ -1861,7 +1932,8 @@ button{
 .vast-label{
   position:absolute;
 
-  bottom:-19px;
+  bottom:-20px;
+
   left:50%;
 
   transform:
@@ -1885,15 +1957,6 @@ button{
 
 .rolling .pip{
   visibility:hidden;
-}
-
-.rolling{
-  background:
-    linear-gradient(
-      145deg,
-      #bd2925,
-      #6f1210
-    );
 }
 
 @keyframes tumble{
@@ -1927,7 +1990,6 @@ button{
       translate(0,0)
       rotate(0deg);
   }
-
 }
 
 .controls{
@@ -1936,13 +1998,9 @@ button{
   grid-template-columns:
     1fr 1fr;
 
-  gap:9px;
+  gap:8px;
 
-  margin-top:16px;
-}
-
-.controls .btn{
-  width:100%;
+  margin-top:15px;
 }
 
 .full{
@@ -1956,7 +2014,7 @@ button{
 
   font-size:12px;
 
-  margin-top:9px;
+  margin-top:8px;
 
   min-height:18px;
 }
@@ -1968,13 +2026,13 @@ button{
 
   border-radius:14px;
 
-  margin-top:12px;
+  margin-top:11px;
 
   overflow:hidden;
 }
 
 .chat-head{
-  padding:11px;
+  padding:10px;
 
   font-weight:900;
 
@@ -1984,13 +2042,14 @@ button{
 }
 
 .chat-body{
-  padding:10px;
+  padding:9px;
 
   border-top:1px solid #574619;
 }
 
 .chat-list{
   max-height:150px;
+
   overflow:auto;
 
   margin-bottom:8px;
@@ -2008,6 +2067,7 @@ button{
 
 .chat-row{
   display:flex;
+
   gap:6px;
 }
 
@@ -2040,7 +2100,7 @@ button{
 }
 
 .log{
-  margin-top:12px;
+  margin-top:11px;
 
   background:#031a12;
 
@@ -2048,13 +2108,15 @@ button{
 
   border-radius:14px;
 
-  padding:10px;
+  padding:9px;
 }
 
 .log-title{
   font-weight:900;
+
   color:#e4ca6d;
-  margin-bottom:7px;
+
+  margin-bottom:6px;
 }
 
 .log-line{
@@ -2080,31 +2142,14 @@ button{
 
 @media(max-width:650px){
 
-  body{
-    padding:7px;
-  }
-
-  .panel{
-    padding:12px;
-  }
-
   .start-buttons{
     grid-template-columns:1fr;
-  }
-
-  .players{
-    grid-template-columns:1fr 1fr;
-  }
-
-  .dice-grid{
-    gap:6px;
   }
 
   .die{
     width:61px;
     height:61px;
     padding:7px;
-    border-radius:12px;
   }
 
   .die .pip{
@@ -2112,17 +2157,8 @@ button{
     height:9px;
   }
 
-  .tray{
-    padding-left:7px;
-    padding-right:7px;
-  }
-
-  .logo{
-    font-size:21px;
-  }
-
-  .room-code{
-    font-size:29px;
+  .dice-grid{
+    gap:5px;
   }
 
 }
@@ -2130,8 +2166,8 @@ button{
 @media(max-width:390px){
 
   .die{
-    width:54px;
-    height:54px;
+    width:53px;
+    height:53px;
   }
 
   .die .pip{
@@ -2140,11 +2176,7 @@ button{
   }
 
   .dice-grid{
-    gap:4px;
-  }
-
-  .tray{
-    border-width:5px;
+    gap:3px;
   }
 
   .players{
@@ -2154,6 +2186,7 @@ button{
 }
 
 </style>
+
 </head>
 
 <body>
@@ -2194,7 +2227,6 @@ Jouw speelnaam
   id="createName"
   maxlength="20"
   placeholder="Bijv. Wesley"
-  autocomplete="nickname"
 >
 
 </div>
@@ -2219,7 +2251,8 @@ Jouw speelnaam
 
 <div
   id="joinBox"
-  class="join-box hidden"
+  class="hidden"
+  style="margin-top:13px"
 >
 
 <div class="field">
@@ -2232,7 +2265,6 @@ Kamercode
   id="joinCode"
   maxlength="6"
   placeholder="Bijv. 2HS3NA"
-  autocomplete="off"
 >
 
 </div>
@@ -2247,7 +2279,6 @@ Jouw speelnaam
   id="joinName"
   maxlength="20"
   placeholder="Bijv. Patrick"
-  autocomplete="nickname"
 >
 
 </div>
@@ -2266,7 +2297,7 @@ Jouw speelnaam
     color:#ff9b8e;
     text-align:center;
     font-weight:bold;
-    margin-top:9px;
+    margin-top:8px;
     min-height:18px
   "
 ></div>
@@ -2298,7 +2329,7 @@ Jouw speelnaam
   id="inviteButton"
   class="btn invite-btn"
 >
-🔗 VRIEND UITNODIGEN
+🔗 LINK KOPIËREN
 </button>
 
 <div
@@ -2333,16 +2364,12 @@ Wachten op de beheerder...
   class="center hidden"
 >
 
-<div class="admin-tools">
-
 <button
   id="startButton"
   class="btn green"
 >
 🎲 START SPEL
 </button>
-
-</div>
 
 </div>
 
@@ -2389,7 +2416,6 @@ DOEL
   id="targetText"
   class="big"
 >
-11
 </div>
 
 </div>
@@ -2421,10 +2447,7 @@ DOEL
   id="chatHead"
   class="chat-head"
 >
-💬 CHAT
-<span id="chatArrow">
-▼
-</span>
+💬 CHAT ▼
 </div>
 
 <div
@@ -2445,9 +2468,7 @@ DOEL
   placeholder="Typ een bericht..."
 >
 
-<button
-  id="chatSend"
->
+<button id="chatSend">
 STUUR
 </button>
 
@@ -2463,9 +2484,7 @@ STUUR
 📜 SPELVERLOOP
 </div>
 
-<div
-  id="logList"
-></div>
+<div id="logList"></div>
 
 </div>
 
@@ -2479,15 +2498,13 @@ Dobbelen 11/24 • Private Casino Table
 
 <script>
 
-var state = null;
+let state = null;
 
-var lastVersion = -1;
+let lastRollSeq = -1;
 
-var lastRollSeq = -1;
+let rolling = false;
 
-var rolling = false;
-
-var pollTimer = null;
+let pollTimer = null;
 
 function $(id){
   return document.getElementById(id);
@@ -2505,22 +2522,39 @@ function euro(value){
 
 }
 
-async function api(
-  url,
-  options
-){
+function escapeHtml(text){
 
-  var res =
+  return String(text || "")
+    .replace(
+      /[&<>'"]/g,
+      function(ch){
+
+        return {
+          "&":"&amp;",
+          "<":"&lt;",
+          ">":"&gt;",
+          "'":"&#39;",
+          '"':"&quot;"
+        }[ch];
+
+      }
+    );
+
+}
+
+async function api(url, options){
+
+  const response =
     await fetch(
       url,
       options || {}
     );
 
-  var data =
-    await res.json();
+  const data =
+    await response.json();
 
   if(
-    !res.ok ||
+    !response.ok ||
     data.error
   ){
 
@@ -2534,7 +2568,7 @@ async function api(
   return data;
 }
 
-function postAction(
+async function postAction(
   type,
   data
 ){
@@ -2549,18 +2583,17 @@ function postAction(
           "application/json"
       },
 
-      body:JSON.stringify({
-        type:type,
-        data:data || {}
-      })
+      body:
+        JSON.stringify({
+          type:type,
+          data:data || {}
+        })
     }
   );
 
 }
 
-function showOnly(
-  section
-){
+function showOnly(id){
 
   $("startScreen")
     .classList.add("hidden");
@@ -2571,7 +2604,7 @@ function showOnly(
   $("game")
     .classList.add("hidden");
 
-  $(section)
+  $(id)
     .classList.remove("hidden");
 
 }
@@ -2582,17 +2615,17 @@ function render(){
     return;
   }
 
-  if(!state.room.started){
-
-    showOnly("lobby");
-
-    renderLobby();
-
-  }else{
+  if(state.room.started){
 
     showOnly("game");
 
     renderGame();
+
+  }else{
+
+    showOnly("lobby");
+
+    renderLobby();
 
   }
 
@@ -2603,30 +2636,27 @@ function renderLobby(){
   $("roomCode").textContent =
     state.room.code;
 
-  var players =
-    state.players || [];
-
-  var html = "";
+  let html = "";
 
   for(
-    var i=0;
+    let i=0;
     i<4;
     i++
   ){
 
-    var p =
-      players[i];
+    const player =
+      state.players[i];
 
-    if(p){
+    if(player){
 
       html +=
         '<div class="player-card">';
 
       html +=
         '<div class="player-name">' +
-        escapeHtml(p.name);
+        escapeHtml(player.name);
 
-      if(p.isAdmin){
+      if(player.isAdmin){
 
         html +=
           '<span class="admin-tag">' +
@@ -2640,31 +2670,31 @@ function renderLobby(){
 
       html +=
         '<div class="player-money">' +
-        euro(p.money) +
+        euro(player.money) +
         '</div>';
 
       if(
         state.me.isAdmin &&
-        !p.isAdmin
+        !player.isAdmin
       ){
 
         html +=
-          "<button " +
-          "class=\"btn red\" " +
-          "style=\"margin-top:8px;" +
-          "min-height:34px;" +
-          "padding:6px 9px;" +
-          "font-size:11px\" " +
-          "onclick=\"removePlayer('" +
-          p.id +
-          "')\">" +
-          "VERWIJDER" +
-          "</button>";
+          '<button ' +
+          'class="btn red" ' +
+          'style="margin-top:7px;' +
+          'min-height:32px;' +
+          'padding:5px 8px;' +
+          'font-size:10px" ' +
+          'onclick="removePlayer(\'' +
+          player.id +
+          '\')">' +
+          'VERWIJDER' +
+          '</button>';
 
       }
 
       html +=
-        "</div>";
+        '</div>';
 
     }else{
 
@@ -2673,7 +2703,7 @@ function renderLobby(){
         '<div class="player-name">' +
         '🎩 OPEN PLAATS' +
         '</div>' +
-        '<div style="margin-top:6px">' +
+        '<div style="margin-top:5px">' +
         'WACHT...' +
         '</div>' +
         '</div>';
@@ -2687,30 +2717,46 @@ function renderLobby(){
 
   if(state.me.isAdmin){
 
+    $("inviteArea")
+      .classList.remove(
+        "hidden"
+      );
+
     $("adminControls")
-      .classList.remove("hidden");
+      .classList.remove(
+        "hidden"
+      );
 
     $("waiting")
-      .classList.add("hidden");
-
-    $("inviteArea")
-      .classList.remove("hidden");
+      .classList.add(
+        "hidden"
+      );
 
     $("startButton").disabled =
       !state.room.canStart;
 
   }else{
 
-    $("adminControls")
-      .classList.add("hidden");
+    /*
+    Gasten zien de kopieerknop NIET.
+    */
 
     $("inviteArea")
-      .classList.add("hidden");
+      .classList.add(
+        "hidden"
+      );
+
+    $("adminControls")
+      .classList.add(
+        "hidden"
+      );
 
     $("waiting")
-      .classList.remove("hidden");
+      .classList.remove(
+        "hidden"
+      );
 
-    var admin =
+    const admin =
       state.players.find(
         function(p){
           return p.isAdmin;
@@ -2730,10 +2776,10 @@ function renderLobby(){
 
 function renderGame(){
 
-  var current =
+  const current =
     state.room.current;
 
-  var mine =
+  const mine =
     current &&
     current.id ===
       state.me.id;
@@ -2749,15 +2795,10 @@ function renderGame(){
       : "";
 
   $("money").textContent =
-    euro(
-      state.me.money
-    );
+    euro(state.me.money);
 
   $("banner").textContent =
     state.room.banner || "";
-
-  var targetBox =
-    $("targetBox");
 
   if(
     state.room.phase ===
@@ -2765,8 +2806,10 @@ function renderGame(){
     state.room.target
   ){
 
-    targetBox
-      .classList.remove("hidden");
+    $("targetBox")
+      .classList.remove(
+        "hidden"
+      );
 
     $("targetText").textContent =
       (
@@ -2780,12 +2823,14 @@ function renderGame(){
 
   }else{
 
-    targetBox
-      .classList.add("hidden");
+    $("targetBox")
+      .classList.add(
+        "hidden"
+      );
 
   }
 
-  renderDice(false);
+  renderDice();
 
   renderControls();
 
@@ -2795,121 +2840,9 @@ function renderGame(){
 
 }
 
-function dieHtml(
-  value,
-  held,
-  index,
-  hidePips
-){
+function renderDice(){
 
-  var cls = "die";
-
-  if(held){
-    cls += " held";
-  }
-
-  if(
-    !held &&
-    state &&
-    state.room.phase ===
-      "main" &&
-    state.room.hasRolled
-  ){
-
-    cls += " clickable";
-
-  }
-
-  if(
-    rolling &&
-    !held
-  ){
-
-    cls += " rolling";
-
-  }
-
-  var html =
-    '<div class="' +
-    cls +
-    '" data-index="' +
-    index +
-    '"';
-
-  if(
-    !hidePips &&
-    value &&
-    !rolling
-  ){
-
-    html +=
-      ' onclick="holdDie(' +
-      index +
-      ')"';
-
-  }
-
-  html += ">";
-
-  if(
-    value &&
-    !hidePips &&
-    !rolling
-  ){
-
-    for(
-      var i=1;
-      i<=value;
-      i++
-    ){
-
-      html +=
-        '<span class="pip p' +
-        i +
-        '"></span>';
-
-    }
-
-  }else{
-
-    for(
-      var j=1;
-      j<=5;
-      j++
-    ){
-
-      html +=
-        '<span class="pip p' +
-        j +
-        '" ' +
-        'style="visibility:hidden">' +
-        '</span>';
-
-    }
-
-  }
-
-  if(held){
-
-    html +=
-      '<span class="vast-label">' +
-      'VAST' +
-      '</span>';
-
-  }
-
-  html +=
-    "</div>";
-
-  return html;
-
-}
-
-function renderDice(
-  hide
-){
-
-  var dice =
+  const dice =
     state.room.dice ||
     [
       null,
@@ -2919,7 +2852,7 @@ function renderDice(
       null
     ];
 
-  var held =
+  const held =
     state.room.held ||
     [
       false,
@@ -2929,21 +2862,130 @@ function renderDice(
       false
     ];
 
-  var html = "";
+  let html = "";
 
   for(
-    var i=0;
+    let i=0;
     i<5;
     i++
   ){
 
+    const value =
+      dice[i];
+
+    let classes =
+      "die";
+
+    /*
+    BELANGRIJK:
+    d1, d2, d3 enz.
+    */
+
+    if(value){
+
+      classes +=
+        " d" +
+        value;
+
+    }
+
+    if(held[i]){
+
+      classes +=
+        " held";
+
+    }
+
+    if(
+      rolling &&
+      !held[i]
+    ){
+
+      classes +=
+        " rolling";
+
+    }
+
+    const canHold =
+      !rolling &&
+      value &&
+      !held[i] &&
+      state.room.phase ===
+        "main" &&
+      state.room.hasRolled;
+
+    if(canHold){
+
+      classes +=
+        " clickable";
+
+    }
+
     html +=
-      dieHtml(
-        dice[i],
-        held[i],
-        i,
-        hide
-      );
+      '<div class="' +
+      classes +
+      '"' +
+      (
+        canHold
+          ? ' onclick="holdDie(' +
+            i +
+            ')"'
+          : ""
+      ) +
+      '>';
+
+    if(
+      value &&
+      !rolling
+    ){
+
+      for(
+        let p=1;
+        p<=value;
+        p++
+      ){
+
+        html +=
+          '<span class="pip p' +
+          p +
+          '"></span>';
+
+      }
+
+    }else{
+
+      /*
+      Tijdens rollen GEEN ogen zichtbaar.
+      */
+
+      for(
+        let p=1;
+        p<=6;
+        p++
+      ){
+
+        html +=
+          '<span class="pip p' +
+          p +
+          '" ' +
+          'style="visibility:hidden">' +
+          '</span>';
+
+      }
+
+    }
+
+    if(held[i]){
+
+      html +=
+        '<span class="vast-label">' +
+        'VAST' +
+        '</span>';
+
+    }
+
+    html +=
+      '</div>';
 
   }
 
@@ -2954,23 +2996,26 @@ function renderDice(
 
 function renderControls(){
 
-  var mine =
-    state.room.current &&
-    state.room.current.id ===
+  const current =
+    state.room.current;
+
+  const mine =
+    current &&
+    current.id ===
       state.me.id;
 
-  var c =
+  const controls =
     $("controls");
 
-  c.innerHTML = "";
+  controls.innerHTML = "";
 
   if(!mine){
 
     $("hint").textContent =
       "Wacht op " +
       (
-        state.room.current
-          ? state.room.current.name
+        current
+          ? current.name
           : "de speler"
       ) +
       "...";
@@ -2988,52 +3033,46 @@ function renderControls(){
       !state.room.hasRolled
     ){
 
-      c.innerHTML =
-        "<button " +
-        "class=\"btn orange full\" " +
-        "onclick=\"doAction('roll')\">" +
-        "🎲 BEGIN WORP" +
-        "</button>";
+      controls.innerHTML =
+        '<button class="btn orange full" ' +
+        'onclick="doAction(\'roll\')">' +
+        '🎲 BEGIN WORP' +
+        '</button>';
 
       $("hint").textContent =
         "Gooi 5 dobbelstenen om te beginnen.";
 
       return;
-
     }
 
-    var rerollDisabled =
+    const rerollDisabled =
       state.room.mustHold ||
-      state.room.held.every(
-        Boolean
-      );
+      state.room.held.every(Boolean);
 
-    var acceptDisabled =
+    const acceptDisabled =
       state.room.mustHold;
 
-    c.innerHTML =
-      "<button " +
-      "class=\"btn orange\" " +
+    controls.innerHTML =
+      '<button class="btn orange" ' +
       (
         rerollDisabled
           ? "disabled"
           : ""
       ) +
-      " onclick=\"doAction('roll')\">" +
-      "🎲 OPNIEUW GOOIEN" +
-      "</button>";
+      ' onclick="doAction(\'roll\')">' +
+      '🎲 OPNIEUW GOOIEN' +
+      '</button>';
 
-    c.innerHTML +=
-      "<button " +
-      "class=\"btn blue\" " +
+    controls.innerHTML +=
+      '<button class="btn blue" ' +
       (
         acceptDisabled
           ? "disabled"
           : ""
       ) +
-      " onclick=\"doAction('accept')\">" +
-      "✅ AKKOORD" +
-      "</button>";
+      ' onclick="doAction(\'accept\')">' +
+      '✅ AKKOORD' +
+      '</button>';
 
     if(
       state.room.mustHold
@@ -3041,15 +3080,6 @@ function renderControls(){
 
       $("hint").textContent =
         "⚠️ Zet eerst minimaal 1 NIEUWE dobbelsteen vast.";
-
-    }else if(
-      state.room.held.every(
-        Boolean
-      )
-    ){
-
-      $("hint").textContent =
-        "Alle dobbelstenen staan vast. Kies AKKOORD.";
 
     }else{
 
@@ -3063,21 +3093,14 @@ function renderControls(){
       "earnpay"
   ){
 
-    var text =
-      state.room.mode ===
-        "earn"
-        ? "💰 GOOI VOOR VERDIENEN"
-        : "💸 GOOI VOOR BETALEN";
-
-    c.innerHTML =
-      "<button " +
-      "class=\"btn orange full\" " +
-      "onclick=\"doAction('roll')\">" +
-      text +
-      "</button>";
+    controls.innerHTML =
+      '<button class="btn orange full" ' +
+      'onclick="doAction(\'roll\')">' +
+      '💰 GOOI VOOR VERDIENEN' +
+      '</button>';
 
     $("hint").textContent =
-      "Iedere nieuwe doelsteen telt mee. Geen doelsteen = MIS.";
+      "Elke nieuwe doelsteen telt mee. Geen doelsteen = MIS.";
 
   }
 
@@ -3085,30 +3108,30 @@ function renderControls(){
 
 function renderChat(){
 
-  var list =
-    $("chatList");
-
-  list.innerHTML =
+  $("chatList").innerHTML =
     (
       state.room.chat ||
       []
     )
-      .map(function(m){
+      .map(
+        function(message){
 
-        return (
-          '<div class="chat-msg">' +
-          '<b>' +
-          escapeHtml(m.name) +
-          ':</b> ' +
-          escapeHtml(m.text) +
-          '</div>'
-        );
+          return (
+            '<div class="chat-msg">' +
+            '<b>' +
+            escapeHtml(
+              message.name
+            ) +
+            ':</b> ' +
+            escapeHtml(
+              message.text
+            ) +
+            '</div>'
+          );
 
-      })
+        }
+      )
       .join("");
-
-  list.scrollTop =
-    list.scrollHeight;
 
 }
 
@@ -3119,37 +3142,18 @@ function renderLog(){
       state.room.log ||
       []
     )
-      .map(function(x){
+      .map(
+        function(line){
 
-        return (
-          '<div class="log-line">' +
-          escapeHtml(x) +
-          '</div>'
-        );
+          return (
+            '<div class="log-line">' +
+            escapeHtml(line) +
+            '</div>'
+          );
 
-      })
+        }
+      )
       .join("");
-
-}
-
-function escapeHtml(s){
-
-  return String(
-    s || ""
-  ).replace(
-    /[&<>'"]/g,
-    function(ch){
-
-      return {
-        "&":"&amp;",
-        "<":"&lt;",
-        ">":"&gt;",
-        "'":"&#39;",
-        '"':"&quot;"
-      }[ch];
-
-    }
-  );
 
 }
 
@@ -3157,7 +3161,7 @@ async function refresh(){
 
   try{
 
-    var data =
+    const data =
       await api(
         "/api/state"
       );
@@ -3166,7 +3170,7 @@ async function refresh(){
       return;
     }
 
-    var oldSeq =
+    const oldSeq =
       state
         ? state.room.rollSeq
         : -1;
@@ -3174,18 +3178,16 @@ async function refresh(){
     state =
       data.state;
 
-    var rollChanged =
+    const rollChanged =
+      oldSeq !== -1 &&
       oldSeq !==
-        state.room.rollSeq &&
-      oldSeq !== -1;
+        state.room.rollSeq;
 
     if(rollChanged){
 
       rolling = true;
 
       render();
-
-      renderDice(true);
 
       setTimeout(
         function(){
@@ -3223,12 +3225,12 @@ async function doAction(
 
   try{
 
-    var oldSeq =
+    const oldSeq =
       state
         ? state.room.rollSeq
         : -1;
 
-    var result =
+    const result =
       await postAction(
         type,
         data
@@ -3237,17 +3239,15 @@ async function doAction(
     state =
       result.state;
 
-    var changed =
+    const rollChanged =
       oldSeq !==
-      state.room.rollSeq;
+        state.room.rollSeq;
 
-    if(changed){
+    if(rollChanged){
 
       rolling = true;
 
       render();
-
-      renderDice(true);
 
       setTimeout(
         function(){
@@ -3274,9 +3274,7 @@ async function doAction(
 
 }
 
-function holdDie(
-  index
-){
+function holdDie(index){
 
   if(
     rolling ||
@@ -3307,14 +3305,6 @@ function holdDie(
 
   }
 
-  if(
-    !state.room.hasRolled
-  ){
-
-    return;
-
-  }
-
   doAction(
     "hold",
     {
@@ -3324,13 +3314,11 @@ function holdDie(
 
 }
 
-async function removePlayer(
-  playerId
-){
+function removePlayer(id){
 
   if(
     !confirm(
-      "Deze speler uit de tafel verwijderen?"
+      "Deze speler verwijderen?"
     )
   ){
 
@@ -3341,72 +3329,35 @@ async function removePlayer(
   doAction(
     "remove",
     {
-      playerId:
-        playerId
+      playerId:id
     }
   );
 
 }
 
-async function inviteFriend(){
+/*
+========================================================
+ALLEEN BEHEERDER:
+LINK KOPIËREN
+========================================================
+*/
+
+async function copyInviteLink(){
 
   if(
     !state ||
-    !state.room
+    !state.room ||
+    !state.me.isAdmin
   ){
 
     return;
 
   }
 
-  var link =
+  const link =
     location.origin +
     "/?join=" +
     state.room.code;
-
-  var shareText =
-    "🎰 Kom bij mijn Dobbelen 11/24 casino tafel!";
-
-  var msg =
-    $("inviteMessage");
-
-  if(
-    navigator.share
-  ){
-
-    try{
-
-      await navigator.share({
-        title:
-          "Dobbelen 11/24",
-
-        text:
-          shareText,
-
-        url:
-          link
-      });
-
-      msg.textContent =
-        "✅ Uitnodiging gedeeld!";
-
-      return;
-
-    }catch(e){
-
-      if(
-        e &&
-        e.name ===
-          "AbortError"
-      ){
-
-        return;
-
-      }
-
-    }
-
-  }
 
   try{
 
@@ -3414,14 +3365,56 @@ async function inviteFriend(){
       link
     );
 
-    msg.textContent =
-      "✅ Uitnodigingslink gekopieerd! Stuur hem door via WhatsApp.";
+    $("inviteMessage").textContent =
+      "✅ Link gekopieerd! Plak hem nu in WhatsApp.";
 
-  }catch(e){
+  }catch(error){
 
-    window.prompt(
-      "Kopieer deze uitnodigingslink:",
-      link
+    /*
+    Reserveoplossing
+    */
+
+    const area =
+      document.createElement(
+        "textarea"
+      );
+
+    area.value = link;
+
+    area.style.position =
+      "fixed";
+
+    area.style.left =
+      "-9999px";
+
+    document.body.appendChild(
+      area
+    );
+
+    area.focus();
+
+    area.select();
+
+    try{
+
+      document.execCommand(
+        "copy"
+      );
+
+      $("inviteMessage").textContent =
+        "✅ Link gekopieerd! Plak hem nu in WhatsApp.";
+
+    }catch(e){
+
+      prompt(
+        "Kopieer deze link:",
+        link
+      );
+
+    }
+
+    document.body.removeChild(
+      area
     );
 
   }
@@ -3430,10 +3423,10 @@ async function inviteFriend(){
 
 async function sendChat(){
 
-  var input =
+  const input =
     $("chatInput");
 
-  var text =
+  const text =
     input.value.trim();
 
   if(!text){
@@ -3444,7 +3437,7 @@ async function sendChat(){
 
   try{
 
-    var result =
+    const result =
       await postAction(
         "chat",
         {
@@ -3468,7 +3461,7 @@ async function sendChat(){
 $("createButton").onclick =
   async function(){
 
-    var name =
+    const name =
       $("createName")
         .value
         .trim();
@@ -3485,7 +3478,7 @@ $("createButton").onclick =
 
     try{
 
-      var result =
+      const result =
         await api(
           "/api/create",
           {
@@ -3516,9 +3509,7 @@ $("createButton").onclick =
 
     }catch(e){
 
-      alert(
-        e.message
-      );
+      alert(e.message);
 
     }
 
@@ -3532,21 +3523,20 @@ $("showJoinButton").onclick =
         "hidden"
       );
 
-    $("joinCode")
-      .focus();
+    $("joinCode").focus();
 
   };
 
 $("joinButton").onclick =
   async function(){
 
-    var code =
+    const code =
       $("joinCode")
         .value
         .trim()
         .toUpperCase();
 
-    var name =
+    const name =
       $("joinName")
         .value
         .trim();
@@ -3569,7 +3559,7 @@ $("joinButton").onclick =
 
     try{
 
-      var result =
+      const result =
         await api(
           "/api/join",
           {
@@ -3619,7 +3609,7 @@ $("startButton").onclick =
   };
 
 $("inviteButton").onclick =
-  inviteFriend;
+  copyInviteLink;
 
 $("chatSend").onclick =
   sendChat;
@@ -3630,8 +3620,7 @@ $("chatInput")
     function(e){
 
       if(
-        e.key ===
-        "Enter"
+        e.key === "Enter"
       ){
 
         sendChat();
@@ -3649,25 +3638,16 @@ $("chatHead").onclick =
         "hidden"
       );
 
-    $("chatArrow")
-      .textContent =
-      $("chatBody")
-        .classList.contains(
-          "hidden"
-        )
-        ? "▼"
-        : "▲";
-
   };
 
 function setupInviteMode(){
 
-  var params =
+  const params =
     new URLSearchParams(
       location.search
     );
 
-  var code =
+  const code =
     (
       params.get("join") ||
       ""
@@ -3692,12 +3672,11 @@ function setupInviteMode(){
       "hidden"
     );
 
-  $("joinCode")
-    .value =
+  $("joinCode").value =
     code;
 
-  $("joinCode")
-    .readOnly = true;
+  $("joinCode").readOnly =
+    true;
 
   $("createButton")
     .classList.add(
@@ -3709,8 +3688,7 @@ function setupInviteMode(){
       "hidden"
     );
 
-  $("joinName")
-    .focus();
+  $("joinName").focus();
 
 }
 
@@ -3720,7 +3698,7 @@ async function initial(){
 
   try{
 
-    var data =
+    const data =
       await api(
         "/api/state"
       );
@@ -3735,14 +3713,6 @@ async function initial(){
     }
 
   }catch(e){}
-
-  if(pollTimer){
-
-    clearInterval(
-      pollTimer
-    );
-
-  }
 
   pollTimer =
     setInterval(
@@ -3770,7 +3740,7 @@ const server =
         );
 
       const session =
-        cookieSession(
+        getSession(
           req,
           res
         );
@@ -3778,10 +3748,8 @@ const server =
       try{
 
         if(
-          req.method ===
-            "GET" &&
-          url.pathname ===
-            "/health"
+          req.method === "GET" &&
+          url.pathname === "/health"
         ){
 
           return json(
@@ -3796,10 +3764,8 @@ const server =
         }
 
         if(
-          req.method ===
-            "GET" &&
-          url.pathname ===
-            "/api/state"
+          req.method === "GET" &&
+          url.pathname === "/api/state"
         ){
 
           if(
@@ -3867,16 +3833,12 @@ const server =
         }
 
         if(
-          req.method ===
-            "POST" &&
-          url.pathname ===
-            "/api/create"
+          req.method === "POST" &&
+          url.pathname === "/api/create"
         ){
 
           const body =
-            await parseBody(
-              req
-            );
+            await parseBody(req);
 
           const name =
             cleanName(
@@ -3891,19 +3853,14 @@ const server =
 
           }
 
-          const room =
-            newRoom(name);
-
-          const player =
-            room.players[0];
+          const result =
+            createRoom(name);
 
           session.roomCode =
-            room.code;
+            result.room.code;
 
           session.playerId =
-            player.id;
-
-          bump(room);
+            result.player.id;
 
           return json(
             res,
@@ -3911,8 +3868,8 @@ const server =
             {
               state:
                 publicState(
-                  room,
-                  player
+                  result.room,
+                  result.player
                 )
             }
           );
@@ -3920,16 +3877,12 @@ const server =
         }
 
         if(
-          req.method ===
-            "POST" &&
-          url.pathname ===
-            "/api/join"
+          req.method === "POST" &&
+          url.pathname === "/api/join"
         ){
 
           const body =
-            await parseBody(
-              req
-            );
+            await parseBody(req);
 
           const name =
             cleanName(
@@ -3971,10 +3924,8 @@ const server =
         }
 
         if(
-          req.method ===
-            "POST" &&
-          url.pathname ===
-            "/api/action"
+          req.method === "POST" &&
+          url.pathname === "/api/action"
         ){
 
           if(
@@ -4016,11 +3967,9 @@ const server =
           }
 
           const body =
-            await parseBody(
-              req
-            );
+            await parseBody(req);
 
-          action(
+          performAction(
             room,
             player,
             body.type,
@@ -4042,10 +3991,8 @@ const server =
         }
 
         if(
-          req.method ===
-            "GET" &&
-          url.pathname ===
-            "/"
+          req.method === "GET" &&
+          url.pathname === "/"
         ){
 
           res.writeHead(
@@ -4077,14 +4024,14 @@ const server =
           "Niet gevonden"
         );
 
-      }catch(e){
+      }catch(error){
 
         return json(
           res,
           400,
           {
             error:
-              e.message ||
+              error.message ||
               "Er ging iets mis."
           }
         );
