@@ -2,6 +2,7 @@ const http = require('http');
 const crypto = require('crypto');
 
 const PORT = process.env.PORT || 3000;
+
 const rooms = new Map();
 const sessions = new Map();
 
@@ -11,293 +12,1019 @@ const HTML = String.raw`<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Dobbelen 11/24</title>
+
 <style>
 *{box-sizing:border-box}
-body{margin:0;background:radial-gradient(circle at 50% -10%,#610019,#16000d 45%,#07070b);color:#fff;font-family:Arial,sans-serif;min-height:100vh}
-.app{max-width:900px;margin:auto;padding:14px}
-h1{text-align:center;color:#ffd54a;margin:4px 0;font-size:32px;text-shadow:0 0 14px #ff1744}
-.sub{text-align:center;color:#ffeaa0;font-weight:700}
-.card{margin-top:14px;padding:15px;border-radius:20px;background:linear-gradient(145deg,#172338,#09101b);border:2px solid #c99b27;box-shadow:0 0 20px #0009}
-.hidden{display:none!important}
-.row{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
-input{padding:12px;border-radius:11px;border:1px solid #ffffff30;background:#080d16;color:#fff;font-size:16px;font-weight:700}
-button{padding:12px 16px;border:0;border-radius:13px;color:#fff;background:linear-gradient(145deg,#435a76,#1a2739);font-weight:900;font-size:14px;box-shadow:0 4px 9px #0008}
-button:disabled{opacity:.35}
-.green{background:#118d64}.orange{background:#bf7614}.blue{background:#123d75}
-.players{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}
-.player{padding:10px;border-radius:13px;background:#0a111d;border:1px solid #ffffff18}
-.player.active{outline:3px solid #ffd43b}
-.money{font-size:20px;font-weight:900;margin-top:4px}
-.small{font-size:12px;color:#c9d0dc}
-.roomcode{text-align:center;font-size:30px;letter-spacing:7px;color:#ffd54a;font-weight:900;margin:8px}
-.turn{text-align:center;color:#ffd54a;font-weight:900;margin:9px}
-.banner{min-height:65px;display:flex;align-items:center;justify-content:center;text-align:center;padding:10px;border-radius:16px;border:3px solid #ffd43b;font-size:28px;font-weight:950;text-transform:uppercase;margin:12px 0}
-.banner.earn{border-color:#18e58b;background:#073729}
-.banner.pay{border-color:#ffb42d;background:#422500}
-.banner.end{border-color:#ff4164;background:#400716}
-.dice{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;padding:15px 0;min-height:130px}
-.die{width:74px;height:74px;position:relative;cursor:pointer;filter:drop-shadow(0 7px 7px #0009)}
-.die.held{filter:drop-shadow(0 0 10px #18e58b)}
-.face{width:74px;height:74px;padding:8px;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);background:linear-gradient(145deg,#e32b2b,#9d080b);border:2px solid #720608;border-radius:12px;box-shadow:inset 0 2px 2px #fff8,inset 0 -6px 9px #0003}
-.pip{width:13px;height:13px;border-radius:50%;background:#fff;align-self:center;justify-self:center;box-shadow:inset 1px 1px 2px #aaa,0 1px 2px #420000}
-.held:after{content:'VAST';position:absolute;bottom:-13px;left:0;right:0;text-align:center;color:#42e39a;font-size:10px;font-weight:900}
-.rolling{animation:roll .8s ease-in-out}
-.rolling:nth-child(2){animation-delay:.05s}
-.rolling:nth-child(3){animation-delay:.1s}
-.rolling:nth-child(4){animation-delay:.15s}
-.rolling:nth-child(5){animation-delay:.2s}
-@keyframes roll{
-0%{transform:translateY(0) rotate(0) scale(1)}
-25%{transform:translateY(-20px) rotate(110deg) scale(1.08)}
-55%{transform:translateY(5px) rotate(230deg) scale(.95)}
-80%{transform:translateY(-10px) rotate(320deg) scale(1.04)}
-100%{transform:translateY(0) rotate(360deg) scale(1)}
+
+body{
+margin:0;
+background:radial-gradient(circle at 50% -10%,#610019,#16000d 45%,#07070b);
+color:#fff;
+font-family:Arial,sans-serif;
+min-height:100vh
 }
-.total{text-align:center;font-size:48px;font-weight:950}
-.label{text-align:center;color:#ffd54a;font-size:12px;font-weight:900;letter-spacing:2px}
-.actions{display:flex;justify-content:center;gap:8px;flex-wrap:wrap}
-.log,.chat{margin-top:13px;background:#070c14;border:1px solid #c99b2744;border-radius:13px;padding:10px}
-.log{max-height:130px;overflow:auto;font-size:13px}
-.log div{padding:5px;border-bottom:1px solid #ffffff12}
-.chatlog{height:120px;overflow:auto;font-size:13px}
-.chatmsg{padding:4px;border-bottom:1px solid #ffffff10}
-.admin{margin-top:12px;padding:10px;border-radius:13px;background:#070c14;border:1px solid #c99b2744}
-.adminGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-top:8px}
-.adminGrid button{font-size:11px;padding:8px 4px}
+
+.app{
+max-width:900px;
+margin:auto;
+padding:14px
+}
+
+h1{
+text-align:center;
+color:#ffd54a;
+margin:4px 0;
+font-size:32px;
+text-shadow:0 0 14px #ff1744
+}
+
+.sub{
+text-align:center;
+color:#ffeaa0;
+font-weight:700
+}
+
+.card{
+margin-top:14px;
+padding:15px;
+border-radius:20px;
+background:linear-gradient(145deg,#172338,#09101b);
+border:2px solid #c99b27;
+box-shadow:0 0 20px #0009
+}
+
+.hidden{display:none!important}
+
+.row{
+display:flex;
+gap:8px;
+justify-content:center;
+flex-wrap:wrap
+}
+
+input{
+padding:12px;
+border-radius:11px;
+border:1px solid #ffffff30;
+background:#080d16;
+color:#fff;
+font-size:16px;
+font-weight:700
+}
+
+button{
+padding:12px 16px;
+border:0;
+border-radius:13px;
+color:#fff;
+background:linear-gradient(145deg,#435a76,#1a2739);
+font-weight:900;
+font-size:14px;
+box-shadow:0 4px 9px #0008
+}
+
+button:disabled{
+opacity:.35
+}
+
+.green{background:#118d64}
+.orange{background:#bf7614}
+.blue{background:#123d75}
+
+.players{
+display:grid;
+grid-template-columns:repeat(4,1fr);
+gap:8px;
+margin-top:12px
+}
+
+.player{
+padding:10px;
+border-radius:13px;
+background:#0a111d;
+border:1px solid #ffffff18
+}
+
+.player.active{
+outline:3px solid #ffd43b
+}
+
+.money{
+font-size:20px;
+font-weight:900;
+margin-top:4px
+}
+
+.small{
+font-size:12px;
+color:#c9d0dc
+}
+
+.roomcode{
+text-align:center;
+font-size:30px;
+letter-spacing:7px;
+color:#ffd54a;
+font-weight:900;
+margin:8px
+}
+
+.turn{
+text-align:center;
+color:#ffd54a;
+font-weight:900;
+margin:9px
+}
+
+.banner{
+min-height:65px;
+display:flex;
+align-items:center;
+justify-content:center;
+text-align:center;
+padding:10px;
+border-radius:16px;
+border:3px solid #ffd43b;
+font-size:28px;
+font-weight:950;
+text-transform:uppercase;
+margin:12px 0
+}
+
+.banner.earn{
+border-color:#18e58b;
+background:#073729
+}
+
+.banner.pay{
+border-color:#ffb42d;
+background:#422500
+}
+
+.banner.end{
+border-color:#ff4164;
+background:#400716
+}
+
+.dice{
+display:flex;
+justify-content:center;
+gap:12px;
+flex-wrap:wrap;
+padding:15px 0;
+min-height:130px
+}
+
+.die{
+width:74px;
+height:74px;
+position:relative;
+cursor:pointer;
+filter:drop-shadow(0 7px 7px #0009)
+}
+
+.face{
+width:74px;
+height:74px;
+padding:8px;
+display:grid;
+grid-template-columns:repeat(3,1fr);
+grid-template-rows:repeat(3,1fr);
+background:linear-gradient(145deg,#e32b2b,#9d080b);
+border:2px solid #720608;
+border-radius:12px;
+box-shadow:
+inset 0 2px 2px #fff8,
+inset 0 -6px 9px #0003
+}
+
+/* VASTE DOBBELSTEEN */
+.die.held{
+filter:
+drop-shadow(0 0 8px #ffd43b)
+drop-shadow(0 0 16px #ffd43b)
+}
+
+.die.held .face{
+border:4px solid #ffd43b;
+box-shadow:
+inset 0 2px 2px #fff8,
+inset 0 -6px 9px #0003,
+0 0 8px #ffd43b,
+0 0 18px #ffd43b
+}
+
+.held:after{
+content:'VAST';
+position:absolute;
+bottom:-15px;
+left:0;
+right:0;
+text-align:center;
+color:#ffd43b;
+font-size:10px;
+font-weight:900
+}
+
+.pip{
+width:13px;
+height:13px;
+border-radius:50%;
+background:#fff;
+align-self:center;
+justify-self:center;
+box-shadow:
+inset 1px 1px 2px #aaa,
+0 1px 2px #420000
+}
+
+/* Alleen losse dobbelstenen krijgen deze animatie */
+.rolling{
+animation:roll .8s ease-in-out
+}
+
+@keyframes roll{
+0%{
+transform:translateY(0) rotate(0deg) scale(1)
+}
+20%{
+transform:translateY(-22px) rotate(100deg) scale(1.08)
+}
+40%{
+transform:translateY(5px) rotate(190deg) scale(.94)
+}
+60%{
+transform:translateY(-15px) rotate(280deg) scale(1.06)
+}
+80%{
+transform:translateY(3px) rotate(340deg) scale(.98)
+}
+100%{
+transform:translateY(0) rotate(360deg) scale(1)
+}
+}
+
+.total{
+text-align:center;
+font-size:48px;
+font-weight:950
+}
+
+.label{
+text-align:center;
+color:#ffd54a;
+font-size:12px;
+font-weight:900;
+letter-spacing:2px
+}
+
+.actions{
+display:flex;
+justify-content:center;
+gap:8px;
+flex-wrap:wrap
+}
+
+.log,.chat{
+margin-top:13px;
+background:#070c14;
+border:1px solid #c99b2744;
+border-radius:13px;
+padding:10px
+}
+
+.log{
+max-height:130px;
+overflow:auto;
+font-size:13px
+}
+
+.log div{
+padding:5px;
+border-bottom:1px solid #ffffff12
+}
+
+.chatlog{
+height:120px;
+overflow:auto;
+font-size:13px
+}
+
+.chatmsg{
+padding:4px;
+border-bottom:1px solid #ffffff10
+}
+
+.admin{
+margin-top:12px;
+padding:10px;
+border-radius:13px;
+background:#070c14;
+border:1px solid #c99b2744
+}
+
+.adminGrid{
+display:grid;
+grid-template-columns:repeat(4,1fr);
+gap:5px;
+margin-top:8px
+}
+
+.adminGrid button{
+font-size:11px;
+padding:8px 4px
+}
+
 @media(max-width:650px){
-.players{grid-template-columns:repeat(2,1fr)}
-.die,.face{width:64px;height:64px}
-.pip{width:11px;height:11px}
-.banner{font-size:23px}
+
+.players{
+grid-template-columns:repeat(2,1fr)
+}
+
+.die,.face{
+width:64px;
+height:64px
+}
+
+.pip{
+width:11px;
+height:11px
+}
+
+.banner{
+font-size:23px
+}
+
 }
 </style>
 </head>
 
 <body>
+
 <div class="app">
 
 <div id="setup" class="card">
+
 <h1>🎲 DOBBELEN 11/24</h1>
-<div class="sub">Online multiplayer • maximaal 4 spelers</div>
+
+<div class="sub">
+Online multiplayer • maximaal 4 spelers
+</div>
 
 <div style="margin:20px 0">
-<h2 style="text-align:center;color:#ffd54a">Nieuwe tafel</h2>
+
+<h2 style="text-align:center;color:#ffd54a">
+Nieuwe tafel
+</h2>
+
 <div class="row">
-<input id="adminName" maxlength="18" placeholder="Jouw naam">
-<button class="green" onclick="createRoom()">🎰 TAFEL MAKEN</button>
+
+<input
+id="adminName"
+maxlength="18"
+placeholder="Jouw naam">
+
+<button
+class="green"
+onclick="createRoom()">
+🎰 TAFEL MAKEN
+</button>
+
 </div>
 </div>
 
 <div>
-<h2 style="text-align:center;color:#ffd54a">Meedoen</h2>
+
+<h2 style="text-align:center;color:#ffd54a">
+Meedoen
+</h2>
+
 <div class="row">
-<input id="joinCode" maxlength="6" placeholder="TAFELCODE">
-<input id="playerName" maxlength="18" placeholder="Jouw naam">
-<button class="orange" onclick="joinRoom()">➡️ MEEDOEN</button>
+
+<input
+id="joinCode"
+maxlength="6"
+placeholder="TAFELCODE">
+
+<input
+id="playerName"
+maxlength="18"
+placeholder="Jouw naam">
+
+<button
+class="orange"
+onclick="joinRoom()">
+➡️ MEEDOEN
+</button>
+
 </div>
 </div>
 
-<p class="small" style="text-align:center">Alleen virtueel geld.</p>
+<p class="small" style="text-align:center">
+Alleen virtueel geld.
+</p>
+
 </div>
+
 
 <div id="game" class="hidden">
+
 <h1>🎲 DOBBELEN 11/24</h1>
-<div class="sub">Online • gedeelde tafel</div>
+
+<div class="sub">
+Online • gedeelde tafel
+</div>
 
 <div class="card">
 
-<div id="roomInfo" class="small" style="text-align:center"></div>
-<div id="roomCode" class="roomcode"></div>
-<div id="players" class="players"></div>
-<div id="turn" class="turn"></div>
+<div id="roomInfo"
+class="small"
+style="text-align:center">
+</div>
 
-<div id="banner" class="banner">Wacht…</div>
+<div id="roomCode"
+class="roomcode">
+</div>
 
-<div id="dice" class="dice"></div>
+<div id="players"
+class="players">
+</div>
 
-<div class="label">TOTAAL</div>
-<div id="total" class="total">–</div>
+<div id="turn"
+class="turn">
+</div>
+
+<div id="banner"
+class="banner">
+Wacht…
+</div>
+
+<div id="dice"
+class="dice">
+</div>
+
+<div class="label">
+TOTAAL
+</div>
+
+<div id="total"
+class="total">
+–
+</div>
 
 <div class="actions">
-<button id="begin" class="green" onclick="act('begin')">🎲 BEGIN WORP</button>
-<button id="reroll" class="orange" onclick="act('reroll')">🎲 OPNIEUW GOOIEN</button>
-<button id="accept" class="blue" onclick="act('accept')">✅ AKKOORD</button>
-<button id="undoHold" onclick="act('undoHold')">↩️ VASTZETTING TERUG</button>
-<button id="undoAccept" onclick="act('undoAccept')">↩️ AKKOORD TERUG</button>
+
+<button
+id="begin"
+class="green"
+onclick="act('begin')">
+🎲 BEGIN WORP
+</button>
+
+<button
+id="reroll"
+class="orange"
+onclick="act('reroll')">
+🎲 OPNIEUW GOOIEN
+</button>
+
+<button
+id="accept"
+class="blue"
+onclick="act('accept')">
+✅ AKKOORD
+</button>
+
+<button
+id="undoHold"
+onclick="act('undoHold')">
+↩️ VASTZETTING TERUG
+</button>
+
+<button
+id="undoAccept"
+onclick="act('undoAccept')">
+↩️ AKKOORD TERUG
+</button>
+
 </div>
 
-<div class="small" style="text-align:center;margin-top:8px">
-In de hoofdronde moet vóór iedere nieuwe worp minimaal 1 steen vaststaan.
+<div
+class="small"
+style="text-align:center;margin-top:8px">
+
+Na iedere worp moet je minimaal
+<strong>1 nieuwe dobbelsteen</strong>
+vastzetten voordat je opnieuw gooit.
+
 </div>
 
-<div id="log" class="log"></div>
+<div id="log"
+class="log">
+</div>
 
-<div id="admin" class="admin">
+<div id="admin"
+class="admin">
+
 <b>👑 ADMIN</b>
-<div class="row" style="margin-top:8px">
-<button class="green" onclick="act('startGame')">▶️ START SPEL</button>
-<button onclick="act('newGame')">🔄 NIEUW SPEL</button>
+
+<div
+class="row"
+style="margin-top:8px">
+
+<button
+class="green"
+onclick="act('startGame')">
+▶️ START SPEL
+</button>
+
+<button
+onclick="act('newGame')">
+🔄 NIEUW SPEL
+</button>
+
 </div>
-<div id="adminGrid" class="adminGrid"></div>
+
+<div
+id="adminGrid"
+class="adminGrid">
+</div>
+
 </div>
 
 <div class="chat">
-<button onclick="toggleChat()">💬 CHAT</button>
+
+<button onclick="toggleChat()">
+💬 CHAT
+</button>
 
 <div id="chatContent">
-<div id="chatlog" class="chatlog"></div>
+
+<div id="chatlog"
+class="chatlog">
+</div>
 
 <div class="row">
-<input id="chatInput" maxlength="120" placeholder="Typ een bericht…">
-<button onclick="chatSend()">Verstuur</button>
+
+<input
+id="chatInput"
+maxlength="120"
+placeholder="Typ een bericht…">
+
+<button onclick="chatSend()">
+Verstuur
+</button>
+
 </div>
+
 </div>
 </div>
 
-<div class="small" style="text-align:center;margin-top:10px">
-Deel taf code <b id="codeBottom"></b> met je medespelers.
+<div
+class="small"
+style="text-align:center;margin-top:10px">
+
+Deel tafelcode
+<b id="codeBottom"></b>
+met je medespelers.
+
 </div>
 
 </div>
 </div>
+
 
 <script>
 
 var token=localStorage.getItem('d1124_token')||'';
 var adminToken=localStorage.getItem('d1124_admin')||'';
+
 var state=null;
 var version=-1;
 var meId='';
 var timer=null;
 var lastDice='';
+var lastPhase='';
+
+var audioCtx=null;
+
+
+/* =========================
+   GELUID
+========================= */
+
+function getAudio(){
+
+try{
+
+if(!audioCtx){
+
+audioCtx=new(
+window.AudioContext||
+window.webkitAudioContext
+)();
+
+}
+
+if(audioCtx.state==='suspended'){
+audioCtx.resume();
+}
+
+return audioCtx;
+
+}catch(e){
+
+return null;
+
+}
+
+}
+
+function tone(freq,duration,type,volume){
+
+try{
+
+var ctx=getAudio();
+
+if(!ctx)return;
+
+var osc=ctx.createOscillator();
+var gain=ctx.createGain();
+
+osc.type=type||'sine';
+osc.frequency.value=freq;
+
+gain.gain.setValueAtTime(
+0.0001,
+ctx.currentTime
+);
+
+gain.gain.exponentialRampToValueAtTime(
+volume||0.05,
+ctx.currentTime+0.01
+);
+
+gain.gain.exponentialRampToValueAtTime(
+0.0001,
+ctx.currentTime+duration
+);
+
+osc.connect(gain);
+gain.connect(ctx.destination);
+
+osc.start();
+
+osc.stop(
+ctx.currentTime+duration+0.03
+);
+
+}catch(e){}
+
+}
+
+function rollSound(){
+
+tone(100,.08,'square',.045);
+
+setTimeout(function(){
+tone(150,.08,'square',.05);
+},70);
+
+setTimeout(function(){
+tone(210,.08,'square',.045);
+},140);
+
+setTimeout(function(){
+tone(280,.12,'triangle',.05);
+},210);
+
+}
+
+function holdSound(){
+
+tone(450,.07,'square',.06);
+
+setTimeout(function(){
+tone(700,.12,'triangle',.07);
+},70);
+
+}
+
+function acceptSound(){
+
+tone(440,.08,'triangle',.06);
+
+setTimeout(function(){
+tone(660,.12,'triangle',.07);
+},90);
+
+}
+
+function winSound(){
+
+tone(520,.10,'triangle',.07);
+
+setTimeout(function(){
+tone(660,.10,'triangle',.07);
+},100);
+
+setTimeout(function(){
+tone(880,.18,'triangle',.08);
+},200);
+
+}
+
+
+/* =========================
+   HULPFUNCTIES
+========================= */
 
 function esc(s){
-return String(s).replace(/[&<>"]/g,function(c){
+
+return String(s).replace(
+/[&<>"]/g,
+function(c){
+
 return {
 '&':'&amp;',
 '<':'&lt;',
 '>':'&gt;',
 '"':'&quot;'
-}[c]
-})
+}[c];
+
+}
+);
+
 }
 
 function euro(n){
-return '€'+Number(n).toFixed(2).replace('.',',')
+
+return '€'+
+Number(n)
+.toFixed(2)
+.replace('.',',');
+
 }
 
+
+/* =========================
+   SERVER
+========================= */
+
 async function post(url,data){
-var r=await fetch(url,{
+
+var r=await fetch(
+url,
+{
 method:'POST',
 headers:{
 'Content-Type':'application/json',
 'X-Session':token
 },
 body:JSON.stringify(data||{})
-});
+}
+);
 
 var j=await r.json();
 
-if(!r.ok)
+if(!r.ok){
 throw Error(j.error||'Fout');
-
-return j
 }
 
+return j;
+
+}
+
+
+/* =========================
+   TAFEL MAKEN
+========================= */
+
 async function createRoom(){
+
 try{
-var j=await post('/api/create',{
-name:document.getElementById('adminName').value.trim()||'Admin'
-});
+
+var j=await post(
+'/api/create',
+{
+name:
+document
+.getElementById('adminName')
+.value
+.trim()||'Admin'
+}
+);
 
 token=j.token;
 adminToken=j.adminToken||'';
 
-localStorage.setItem('d1124_token',token);
-localStorage.setItem('d1124_admin',adminToken);
+localStorage.setItem(
+'d1124_token',
+token
+);
+
+localStorage.setItem(
+'d1124_admin',
+adminToken
+);
 
 apply(j);
-poll()
+poll();
+
 }catch(e){
-alert(e.message)
-}
+
+alert(e.message);
+
 }
 
+}
+
+
+/* =========================
+   MEEDOEN
+========================= */
+
 async function joinRoom(){
+
 try{
-var j=await post('/api/join',{
-room:document.getElementById('joinCode').value.trim().toUpperCase(),
-name:document.getElementById('playerName').value.trim()||'Speler'
-});
+
+var j=await post(
+'/api/join',
+{
+room:
+document
+.getElementById('joinCode')
+.value
+.trim()
+.toUpperCase(),
+
+name:
+document
+.getElementById('playerName')
+.value
+.trim()||'Speler'
+}
+);
 
 token=j.token;
 adminToken='';
 
-localStorage.setItem('d1124_token',token);
-localStorage.removeItem('d1124_admin');
+localStorage.setItem(
+'d1124_token',
+token
+);
+
+localStorage.removeItem(
+'d1124_admin'
+);
 
 apply(j);
-poll()
+poll();
+
 }catch(e){
-alert(e.message)
+
+alert(e.message);
+
 }
+
 }
+
+
+/* =========================
+   ACTIE
+========================= */
 
 async function act(a,extra){
+
 try{
-var data=Object.assign({
+
+/* Geluid bij acties */
+if(a==='begin' || a==='reroll'){
+rollSound();
+}
+
+if(a==='hold'){
+holdSound();
+}
+
+if(a==='accept'){
+acceptSound();
+}
+
+var data=Object.assign(
+{
 action:a,
 adminToken:adminToken
-},extra||{});
+},
+extra||{}
+);
 
-var j=await post('/api/action',data);
+var j=await post(
+'/api/action',
+data
+);
 
-apply(j)
+apply(j);
+
 }catch(e){
-alert(e.message)
+
+alert(e.message);
+
 }
+
 }
+
+
+/* =========================
+   CHAT
+========================= */
 
 async function chatSend(){
-var x=document.getElementById('chatInput');
+
+var x=document.getElementById(
+'chatInput'
+);
+
 var t=x.value.trim();
 
 if(!t)return;
 
 try{
-await post('/api/chat',{text:t});
-x.value='';
-loadState()
-}catch(e){
-alert(e.message)
+
+await post(
+'/api/chat',
+{
+text:t
 }
+);
+
+x.value='';
+
+loadState();
+
+}catch(e){
+
+alert(e.message);
+
+}
+
 }
 
 function toggleChat(){
-document.getElementById('chatContent').classList.toggle('hidden')
+
+document
+.getElementById('chatContent')
+.classList
+.toggle('hidden');
+
 }
 
+
+/* =========================
+   POLLING
+========================= */
+
 async function loadState(){
+
 try{
-var r=await fetch('/api/state',{
-headers:{'X-Session':token},
+
+var r=await fetch(
+'/api/state',
+{
+headers:{
+'X-Session':token
+},
 cache:'no-store'
-});
+}
+);
 
 if(!r.ok)return;
 
 var j=await r.json();
 
-if(j.version!==version)
-apply(j)
+if(j.version!==version){
+apply(j);
+}
 
 }catch(e){}
+
 }
 
 function poll(){
+
 if(timer)return;
-timer=setInterval(loadState,500)
+
+timer=setInterval(
+loadState,
+500
+);
+
 }
+
+
+/* =========================
+   DOBBELSTEEN
+========================= */
 
 function face(n){
 
@@ -313,262 +1040,516 @@ var pos=[
 
 var s='';
 
-for(var i=1;i<=9;i++){
+for(
+var i=1;
+i<=9;
+i++
+){
 
-s+='<span class="pip" style="visibility:'+
-(pos.indexOf(i)>=0?'visible':'hidden')+
+s+=
+'<span class="pip" style="visibility:'+
+(
+pos.indexOf(i)>=0?
+'visible':
+'hidden'
+)+
 '"></span>';
 
 }
 
-return s
+return s;
+
 }
+
+
+/* =========================
+   DOBBELSTENEN RENDEREN
+========================= */
 
 function renderDice(){
 
-var d=document.getElementById('dice');
+var d=document.getElementById(
+'dice'
+);
+
 var html='';
 
 var myTurn=
 state.currentId===meId &&
-state.players.filter(function(p){
-return p.active
-}).some(function(p){
-return p.id===meId
+state.players
+.filter(function(p){
+return p.active;
+})
+.some(function(p){
+return p.id===meId;
 });
 
-for(var i=0;i<state.dice.length;i++){
+
+for(
+var i=0;
+i<state.dice.length;
+i++
+){
 
 var click='';
 
 if(
 myTurn &&
 state.phase==='main' &&
-state.hasRolled
+state.hasRolled &&
+!state.held[i]
 ){
-click="act('hold',{index:"+i+"})"
+
+click=
+"act('hold',{index:"+i+"})";
+
 }
 
 html+=
 '<div class="die '+
-(state.held[i]?'held ':'')+
-'" onclick="'+click+'">'+
+(
+state.held[i]?
+'held ':
+''
+)+
+'" onclick="'+
+click+
+'">'+
+
 '<div class="face">'+
 face(state.dice[i])+
 '</div>'+
+
 '</div>';
 
 }
 
 d.innerHTML=html;
 
+
+/*
+ Alleen wanneer de dobbelwaarden veranderen
+ wordt de animatie uitgevoerd.
+
+ Vaste stenen worden bewust overgeslagen.
+*/
+
 var now=state.dice.join(',');
 
-if(now!==lastDice && now){
+if(
+now!==lastDice &&
+now
+){
 
-var els=d.querySelectorAll('.die');
+var els=
+d.querySelectorAll('.die');
 
-for(var k=0;k<els.length;k++){
+for(
+var k=0;
+k<els.length;
+k++
+){
 
-els[k].classList.add('rolling');
+if(state.held[k]){
+continue;
+}
+
+els[k].classList.add(
+'rolling'
+);
 
 (function(el,delay){
 
-setTimeout(function(){
-el.classList.remove('rolling')
-},1000+delay)
+setTimeout(
+function(){
 
-})(els[k],k*50);
+el.classList.remove(
+'rolling'
+);
+
+},
+850+delay
+);
+
+})(
+els[k],
+k*60
+);
 
 }
 
 }
 
-lastDice=now
+lastDice=now;
+
 }
+
+
+/* =========================
+   SCHERM BIJWERKEN
+========================= */
 
 function apply(j){
 
 if(!j||!j.state)return;
 
+var previousPhase=lastPhase;
+
 state=j.state;
-version=j.version==null?version:j.version;
 
-if(j.me)
+version=
+j.version==null?
+version:
+j.version;
+
+if(j.me){
 meId=j.me;
+}
 
-document.getElementById('setup').classList.add('hidden');
-document.getElementById('game').classList.remove('hidden');
+document
+.getElementById('setup')
+.classList
+.add('hidden');
 
-document.getElementById('roomCode').textContent=state.code;
-document.getElementById('codeBottom').textContent=state.code;
+document
+.getElementById('game')
+.classList
+.remove('hidden');
 
-document.getElementById('roomInfo').textContent=
+document
+.getElementById('roomCode')
+.textContent=
+state.code;
+
+document
+.getElementById('codeBottom')
+.textContent=
+state.code;
+
+document
+.getElementById('roomInfo')
+.textContent=
 state.started?
 'Spel bezig':
 'Wacht op start door admin';
 
-document.getElementById('turn').textContent=
+document
+.getElementById('turn')
+.textContent=
 state.started?
-state.currentName+' is aan de beurt':
+state.currentName+
+' is aan de beurt':
 '';
 
-document.getElementById('banner').textContent=
+document
+.getElementById('banner')
+.textContent=
 state.banner.text;
 
-document.getElementById('banner').className=
-'banner '+(state.banner.type||'');
+document
+.getElementById('banner')
+.className=
+'banner '+
+(state.banner.type||'');
 
-document.getElementById('players').innerHTML=
-state.players.map(function(p){
+
+document
+.getElementById('players')
+.innerHTML=
+state.players
+.map(function(p){
 
 return '<div class="player '+
-(p.id===state.currentId?'active':'')+
+(
+p.id===state.currentId?
+'active':
+''
+)+
 '">'+
+
 '<b>'+
 esc(p.name)+
-(p.admin?' 👑':'')+
+(
+p.admin?
+' 👑':
+''
+)+
 '</b>'+
+
 '<div class="money">'+
 euro(p.balance)+
 '</div>'+
+
 '<div class="small">'+
-(p.active?'🟢 Actief':'⏸️ Gepauzeerd')+
+(
+p.active?
+'🟢 Actief':
+'⏸️ Gepauzeerd'
+)+
 '</div>'+
+
 '</div>';
 
-}).join('');
+})
+.join('');
+
 
 renderDice();
 
-document.getElementById('total').textContent=
+
+document
+.getElementById('total')
+.textContent=
 state.dice.length?
-state.dice.reduce(function(a,b){
-return a+b
-},0):
+state.dice.reduce(
+function(a,b){
+return a+b;
+},
+0
+):
 '–';
+
 
 var mine=
 state.currentId===meId &&
 state.started;
 
-document.getElementById('begin').disabled=
+
+/* BEGIN */
+document
+.getElementById('begin')
+.disabled=
 !mine ||
 state.phase!=='idle';
 
-document.getElementById('reroll').disabled=
+
+/* OPNIEUW GOOIEN */
+document
+.getElementById('reroll')
+.disabled=
 !mine ||
 !state.hasRolled ||
 (
 state.phase==='main' &&
-!state.held.some(Boolean)
+(
+!state.held.some(Boolean) ||
+state.held.every(Boolean)
+)
 );
 
-document.getElementById('accept').disabled=
+
+/* AKKOORD */
+document
+.getElementById('accept')
+.disabled=
 !mine ||
 state.phase!=='main' ||
 !state.hasRolled;
 
-document.getElementById('undoHold').disabled=
+
+/* UNDO */
+document
+.getElementById('undoHold')
+.disabled=
 !mine ||
 !state.lastHold;
 
-document.getElementById('undoAccept').disabled=
+document
+.getElementById('undoAccept')
+.disabled=
 !mine ||
 !state.canUndoAccept;
 
-document.getElementById('admin').classList.toggle(
+
+/* ADMIN */
+document
+.getElementById('admin')
+.classList
+.toggle(
 'hidden',
 !state.isAdmin
 );
 
-document.getElementById('adminGrid').innerHTML=
-state.isAdmin?
-state.players.map(function(p){
 
-if(p.admin)
-return '<button disabled>👑 '+
+document
+.getElementById('adminGrid')
+.innerHTML=
+state.isAdmin?
+state.players
+.map(function(p){
+
+if(p.admin){
+
+return '<button disabled>'+
+'👑 '+
 esc(p.name)+
 '</button>';
+
+}
 
 return '<button onclick="act(\'togglePlayer\',{id:\''+
 p.id+
 '\'})">'+
-(p.active?'⏸️':'▶️')+
+(
+p.active?
+'⏸️':
+'▶️'
+)+
 ' '+
 esc(p.name)+
 '</button>'+
+
 '<button onclick="if(confirm(\'Speler verwijderen?\'))act(\'removePlayer\',{id:\''+
 p.id+
-'\'})">❌</button>';
+'\'})">'+
+'❌'+
+'</button>';
 
-}).join(''):
+})
+.join(''):
 '';
 
-document.getElementById('log').innerHTML=
+
+/* LOG */
+
+document
+.getElementById('log')
+.innerHTML=
 (state.log||[])
 .slice(-25)
 .reverse()
 .map(function(x){
-return '<div>'+esc(x)+'</div>'
+
+return '<div>'+
+esc(x)+
+'</div>';
+
 })
 .join('');
 
+
+/* CHAT */
+
 if(j.chat){
 
-document.getElementById('chatlog').innerHTML=
-j.chat.map(function(m){
+document
+.getElementById('chatlog')
+.innerHTML=
+j.chat
+.map(function(m){
 
 return '<div class="chatmsg">'+
-'<b>'+esc(m.name)+':</b> '+
+'<b>'+
+esc(m.name)+
+':</b> '+
 esc(m.text)+
 '</div>';
 
-}).join('');
+})
+.join('');
 
-var c=document.getElementById('chatlog');
+var c=
+document.getElementById(
+'chatlog'
+);
 
 c.scrollTop=c.scrollHeight;
 
 }
+
+
+/* Win-geluid bij nieuwe earn */
+if(
+state.phase==='round' &&
+previousPhase!=='round' &&
+state.mode==='earn'
+){
+
+winSound();
+
 }
+
+lastPhase=state.phase;
+
+}
+
+
+/* =========================
+   AUTOMATISCH LADEN
+========================= */
 
 if(token){
+
 loadState();
-poll()
+poll();
+
 }
 
-document.getElementById('chatInput').addEventListener(
+
+document
+.getElementById('chatInput')
+.addEventListener(
 'keydown',
 function(e){
-if(e.key==='Enter')
-chatSend()
+
+if(e.key==='Enter'){
+chatSend();
+}
+
 }
 );
 
 </script>
 
-</div>
 </body>
 </html>`;
 
-const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+/* =========================================
+   SERVER FUNCTIES
+========================================= */
+
+const alphabet=
+'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
 
 function id(){
-return crypto.randomBytes(8).toString('hex');
+
+return crypto
+.randomBytes(8)
+.toString('hex');
+
 }
+
 
 function token(){
-return crypto.randomBytes(18).toString('hex');
+
+return crypto
+.randomBytes(18)
+.toString('hex');
+
 }
+
 
 function die(){
-return 1+Math.floor(Math.random()*6);
+
+return 1+
+Math.floor(
+Math.random()*6
+);
+
 }
 
+
 function roll(){
-return Array.from({length:5},die);
+
+return Array.from(
+{length:5},
+die
+);
+
 }
+
 
 function roomCode(){
 
@@ -579,36 +1560,51 @@ do{
 c=Array.from(
 {length:6},
 function(){
+
 return alphabet[
 Math.floor(
 Math.random()*alphabet.length
 )
-]
+];
+
 }
 ).join('');
 
 }while(rooms.has(c));
 
-return c
+return c;
+
 }
+
 
 function money(n){
-return Math.round(n*100)/100
+
+return Math.round(n*100)/100;
+
 }
 
+
 function active(r){
-return r.players.filter(function(p){
-return p.active
-})
+
+return r.players.filter(
+function(p){
+return p.active;
 }
+);
+
+}
+
 
 function log(r,s){
 
 r.log.push(s);
 
-if(r.log.length>60)
-r.log.shift()
+if(r.log.length>60){
+r.log.shift();
 }
+
+}
+
 
 function nextPlayer(r){
 
@@ -618,18 +1614,25 @@ n<=r.players.length;
 n++
 ){
 
-const i=(r.current+n)%r.players.length;
+const i=
+(r.current+n)%
+r.players.length;
 
 if(
 r.players[i] &&
 r.players[i].active
-)
-return i
+){
+
+return i;
 
 }
 
-return -1
 }
+
+return -1;
+
+}
+
 
 function resetTurn(r){
 
@@ -654,27 +1657,35 @@ false
 ];
 
 r.hasRolled=false;
+
 r.target=null;
 r.mode=null;
+
 r.lastHold=null;
 r.canUndo=null;
 
 r.banner={
 text:
-(r.players[r.current]?
+(
+r.players[r.current]?
 r.players[r.current].name:
-'')+
+''
+)+
 ' is aan de beurt. Klik op BEGIN WORP.',
 type:''
+};
+
 }
-}
+
 
 function transfer(r,p,amount,earning){
 
 const others=
-active(r).filter(function(x){
-return x.id!==p.id
+active(r)
+.filter(function(x){
+return x.id!==p.id;
 });
+
 
 if(earning){
 
@@ -684,10 +1695,16 @@ p.balance+
 amount*others.length
 );
 
-others.forEach(function(x){
+others.forEach(
+function(x){
+
 x.balance=
-money(x.balance-amount)
-});
+money(
+x.balance-amount
+);
+
+}
+);
 
 }else{
 
@@ -697,13 +1714,21 @@ p.balance-
 amount*others.length
 );
 
-others.forEach(function(x){
+others.forEach(
+function(x){
+
 x.balance=
-money(x.balance+amount)
-});
+money(
+x.balance+amount
+);
 
 }
+);
+
 }
+
+}
+
 
 function state(r,p){
 
@@ -745,7 +1770,8 @@ canUndoAccept:!!r.canUndo,
 
 lastHold:!!r.lastHold,
 
-players:r.players.map(function(x){
+players:r.players.map(
+function(x){
 
 return {
 id:x.id,
@@ -753,18 +1779,24 @@ name:x.name,
 balance:x.balance,
 active:x.active,
 admin:x.admin
-}
+};
 
-}),
+}
+),
 
 isAdmin:!!p.admin
 
-}
+};
+
 }
 
+
 function push(r){
-r.version++
+
+r.version++;
+
 }
+
 
 function finishTurn(r){
 
@@ -775,8 +1807,9 @@ r.players[r.current].name:
 
 const n=nextPlayer(r);
 
-if(n>=0)
+if(n>=0){
 r.current=n;
+}
 
 resetTurn(r);
 
@@ -791,25 +1824,45 @@ old
 '.'
 );
 
-push(r)
+push(r);
+
 }
+
+
+/* =========================================
+   DOEL
+========================================= */
 
 function targetFor(total){
 
-if(total<11)
-return {
-mode:'earn',
-n:Math.min(6,11-total)
-};
-
-if(total>24)
-return {
-mode:'earn',
-n:Math.min(6,total-24)
-};
+if(total<11){
 
 return {
+mode:'earn',
+n:Math.min(
+6,
+11-total
+)
+};
+
+}
+
+if(total>24){
+
+return {
+mode:'earn',
+n:Math.min(
+6,
+total-24
+)
+};
+
+}
+
+return {
+
 mode:'pay',
+
 n:Math.min(
 6,
 Math.min(
@@ -817,14 +1870,25 @@ total-11,
 24-total
 )
 )
+
+};
+
 }
-}
+
+
+/* =========================================
+   VERDIENEN / BETALEN
+========================================= */
 
 function resolveEarnPay(r){
 
 let hits=0;
 
-for(let i=0;i<5;i++){
+for(
+let i=0;
+i<5;
+i++
+){
 
 if(
 !r.settled[i] &&
@@ -833,16 +1897,19 @@ r.dice[i]===r.target
 
 r.settled[i]=true;
 r.held[i]=true;
+
 hits++;
 
 }
 
 }
 
+
 if(!hits){
 
 r.banner={
-text:'❌ MIS — geen nieuwe doel-dobbelsteen',
+text:
+'❌ MIS — geen nieuwe doel-dobbelsteen',
 type:'end'
 };
 
@@ -855,11 +1922,15 @@ r.target+
 
 finishTurn(r);
 
-return
+return;
+
 }
 
+
 const p=r.players[r.current];
-const amount=r.target*0.5;
+
+const amount=
+r.target*0.5;
 
 transfer(
 r,
@@ -868,19 +1939,27 @@ amount,
 r.mode==='earn'
 );
 
+
 r.banner={
 text:
-(r.mode==='earn'?
+(
+r.mode==='earn'?
 'VERDIENEN: ':
-'BETALEN: ')+
+'BETALEN: '
+)+
 r.target+
 '’EN',
 type:r.mode
 };
 
+
 log(
 r,
-(r.mode==='earn'?'💰 ':'💸 ')+
+(
+r.mode==='earn'?
+'💰 ':
+'💸 '
+)+
 p.name+
 ': '+
 hits+
@@ -891,11 +1970,19 @@ money(amount*hits)+
 ' per tegenstander).'
 );
 
+
 r.phase='round';
+
 r.hasRolled=true;
 
-push(r)
+push(r);
+
 }
+
+
+/* =========================================
+   AKKOORD
+========================================= */
 
 function accept(r){
 
@@ -904,23 +1991,31 @@ const p=r.players[r.current];
 if(
 r.phase!=='main' ||
 !r.hasRolled
-)
+){
+
 throw Error(
 'Er is niets om te accepteren.'
 );
+
+}
+
 
 r.canUndo={
 dice:r.dice.slice(),
 held:r.held.slice()
 };
 
+
 const total=
 r.dice.reduce(
 function(a,b){
-return a+b
+return a+b;
 },
 0
 );
+
+
+/* 11 OF 24 */
 
 if(
 total===11 ||
@@ -950,15 +2045,25 @@ type:'pay'
 
 finishTurn(r);
 
-return
+return;
+
 }
 
-let t=targetFor(total);
+
+/* DOEL */
+
+let t=
+targetFor(total);
+
+
+/* VIJF DEZELFDE */
 
 if(
-r.dice.every(function(v){
-return v===r.dice[0]
-})
+r.dice.every(
+function(v){
+return v===r.dice[0];
+}
+)
 ){
 
 t={
@@ -968,15 +2073,18 @@ n:6
 
 }
 
+
 r.mode=t.mode;
 r.target=t.n;
 r.phase='round';
 
 r.banner={
 text:
-(t.mode==='earn'?
+(
+t.mode==='earn'?
 'VERDIENEN: ':
-'BETALEN: ')+
+'BETALEN: '
+)+
 t.n+
 '’EN',
 type:t.mode
@@ -986,15 +2094,23 @@ log(
 r,
 p.name+
 ': '+
-(t.mode==='earn'?
+(
+t.mode==='earn'?
 'verdienen ':
-'betalen ')+
+'betalen '
+)+
 t.n+
 '’en.'
 );
 
-resolveEarnPay(r)
+resolveEarnPay(r);
+
 }
+
+
+/* =========================================
+   ACTIES
+========================================= */
 
 function act(r,p,a,b){
 
@@ -1007,23 +2123,33 @@ if(
 ].includes(a)
 ){
 
-if(!p.admin)
+if(!p.admin){
+
 throw Error(
 'Alleen de admin kan dit.'
 );
 
+}
+
+
+/* SPELER AAN/UIT */
+
 if(a==='togglePlayer'){
 
-const q=r.players.find(
+const q=
+r.players.find(
 function(x){
-return x.id===b.id
+return x.id===b.id;
 }
 );
 
-if(!q)
+if(!q){
+
 throw Error(
 'Speler niet gevonden.'
 );
+
+}
 
 q.active=!q.active;
 
@@ -1034,8 +2160,9 @@ r.players[r.current]===q &&
 
 const n=nextPlayer(r);
 
-if(n>=0)
-r.current=n
+if(n>=0){
+r.current=n;
+}
 
 }
 
@@ -1043,47 +2170,71 @@ resetTurn(r);
 
 log(
 r,
-(q.active?'▶️ ':'⏸️ ')+
+(
+q.active?
+'▶️ ':
+'⏸️ '
+)+
 q.name+
-(q.active?
+(
+q.active?
 ' is actief.':
-' is gepauzeerd.')
+' is gepauzeerd.'
+)
 );
 
 push(r);
 
-return
+return;
+
 }
+
+
+/* SPELER VERWIJDEREN */
 
 if(a==='removePlayer'){
 
-const i=r.players.findIndex(
+const i=
+r.players.findIndex(
 function(x){
-return x.id===b.id
+return x.id===b.id;
 }
 );
 
-if(i<0)
+if(i<0){
+
 throw Error(
 'Speler niet gevonden.'
 );
 
-if(r.players[i].admin)
+}
+
+if(r.players[i].admin){
+
 throw Error(
 'Admin kan niet worden verwijderd.'
 );
 
-const name=r.players[i].name;
+}
+
+const name=
+r.players[i].name;
 
 r.players.splice(i,1);
 
-if(r.players.length<1)
+if(r.players.length<1){
+
 throw Error(
 'Geen spelers meer.'
 );
 
-if(r.current>=r.players.length)
+}
+
+if(r.current>=r.players.length){
+
 r.current=0;
+
+}
 
 resetTurn(r);
 
@@ -1096,18 +2247,25 @@ name+
 
 push(r);
 
-return
+return;
+
 }
+
+
+/* NIEUW SPEL */
 
 if(a==='newGame'){
 
 r.started=false;
 
-r.players.forEach(function(x){
-x.balance=100
-});
+r.players.forEach(
+function(x){
+x.balance=100;
+}
+);
 
 r.current=0;
+
 r.log=[];
 
 resetTurn(r);
@@ -1120,17 +2278,26 @@ type:''
 
 push(r);
 
-return
+return;
+
 }
 
-if(active(r).length<2)
+
+/* START SPEL */
+
+if(active(r).length<2){
+
 throw Error(
 'Minimaal 2 actieve spelers nodig.'
 );
 
-r.players.forEach(function(x){
-x.balance=100
-});
+}
+
+r.players.forEach(
+function(x){
+x.balance=100;
+}
+);
 
 r.current=
 r.players.indexOf(
@@ -1150,29 +2317,48 @@ resetTurn(r);
 
 push(r);
 
-return
+return;
+
 }
 
-if(!r.started)
+
+if(!r.started){
+
 throw Error(
 'Het spel is nog niet gestart.'
 );
+
+}
+
+
+/* CONTROLE BEURT */
 
 if(
 !r.players[r.current] ||
 r.players[r.current].id!==p.id ||
 !p.active
-)
+){
+
 throw Error(
 'Je bent niet aan de beurt.'
 );
 
+}
+
+
+/* =========================================
+   BEGIN WORP
+========================================= */
+
 if(a==='begin'){
 
-if(r.phase!=='idle')
+if(r.phase!=='idle'){
+
 throw Error(
 'Je kunt nu niet beginnen.'
 );
+
+}
 
 r.dice=roll();
 
@@ -1193,7 +2379,9 @@ false
 ];
 
 r.hasRolled=true;
+
 r.phase='main';
+
 r.lastHold=null;
 
 r.banner={
@@ -1211,18 +2399,27 @@ p.name+
 
 push(r);
 
-return
+return;
+
 }
+
+
+/* =========================================
+   VASTZETTEN
+========================================= */
 
 if(a==='hold'){
 
 if(
 r.phase!=='main' ||
 !r.hasRolled
-)
+){
+
 throw Error(
 'Vastzetten kan nu niet.'
 );
+
+}
 
 const i=Number(b.index);
 
@@ -1230,8 +2427,17 @@ if(
 i<0 ||
 i>4 ||
 r.held[i]
-)
+){
+
 return;
+
+}
+
+
+/*
+ Bewaar vorige toestand voor
+ VASTZETTING TERUG.
+*/
 
 r.lastHold={
 dice:r.dice.slice(),
@@ -1242,23 +2448,68 @@ r.held[i]=true;
 
 r.banner={
 text:
-'VAST — kies nog een dobbelsteen of gooi opnieuw.',
+'VAST — kies nog een steen of gooi opnieuw.',
 type:''
 };
 
+log(
+r,
+'🔒 '+
+p.name+
+' zet dobbelsteen '+
+(i+1)+
+' vast.'
+);
+
 push(r);
 
-return
+return;
+
 }
+
+
+/* =========================================
+   OPNIEUW GOOIEN
+========================================= */
 
 if(a==='reroll'){
 
 if(r.phase==='main'){
 
-if(!r.held.some(Boolean))
+/*
+ Minimaal één steen moet vaststaan.
+*/
+
+if(
+!r.held.some(Boolean)
+){
+
 throw Error(
 'Je moet minimaal 1 dobbelsteen vastzetten.'
 );
+
+}
+
+
+/*
+ Alle stenen vast?
+ Dan mag er niet meer gegooid worden.
+*/
+
+if(
+r.held.every(Boolean)
+){
+
+throw Error(
+'Alle dobbelstenen staan al vast.'
+);
+
+}
+
+
+/*
+ ALLEEN LOSSE STENEN GOOIEN
+*/
 
 for(
 let i=0;
@@ -1266,8 +2517,11 @@ i<5;
 i++
 ){
 
-if(!r.held[i])
-r.dice[i]=die()
+if(!r.held[i]){
+
+r.dice[i]=die();
+
+}
 
 }
 
@@ -1275,14 +2529,27 @@ r.lastHold=null;
 
 r.banner={
 text:
-'Nieuwe worp — zet vóór de volgende worp weer minimaal 1 vast.',
+'Nieuwe worp — zet weer minimaal 1 steen vast.',
 type:''
 };
 
+log(
+r,
+'🎲 '+
+p.name+
+' gooit opnieuw.'
+);
+
 push(r);
 
-return
+return;
+
 }
+
+
+/* =========================================
+   VERDIENEN / BETALEN RONDE
+========================================= */
 
 if(r.phase==='round'){
 
@@ -1292,31 +2559,49 @@ i<5;
 i++
 ){
 
-if(!r.settled[i])
-r.dice[i]=die()
+if(!r.settled[i]){
+
+r.dice[i]=die();
+
+}
 
 }
 
 resolveEarnPay(r);
 
-return
+return;
+
 }
 
 }
+
+
+/* =========================================
+   AKKOORD
+========================================= */
 
 if(a==='accept'){
 
 accept(r);
 
-return
+return;
+
 }
+
+
+/* =========================================
+   VASTZETTING TERUG
+========================================= */
 
 if(a==='undoHold'){
 
-if(!r.lastHold)
+if(!r.lastHold){
+
 throw Error(
 'Geen laatste vastzetting.'
 );
+
+}
 
 r.dice=
 r.lastHold.dice.slice();
@@ -1334,15 +2619,24 @@ type:''
 
 push(r);
 
-return
+return;
+
 }
+
+
+/* =========================================
+   AKKOORD TERUG
+========================================= */
 
 if(a==='undoAccept'){
 
-if(!r.canUndo)
+if(!r.canUndo){
+
 throw Error(
 'AKKOORD kan nu niet terug.'
 );
+
+}
 
 r.dice=
 r.canUndo.dice.slice();
@@ -1351,7 +2645,9 @@ r.held=
 r.canUndo.held.slice();
 
 r.phase='main';
+
 r.canUndo=null;
+
 r.target=null;
 
 r.banner={
@@ -1362,23 +2658,38 @@ type:''
 
 push(r);
 
-return
+return;
+
 }
+
 
 throw Error(
 'Onbekende actie.'
-)
+);
+
 }
+
+
+/* =========================================
+   TAFEL MAKEN
+========================================= */
 
 function createRoom(name){
 
 const r={
+
 code:roomCode(),
+
 players:[],
+
 started:false,
+
 current:0,
+
 phase:'idle',
+
 dice:[],
+
 held:[
 false,
 false,
@@ -1386,6 +2697,7 @@ false,
 false,
 false
 ],
+
 settled:[
 false,
 false,
@@ -1393,31 +2705,50 @@ false,
 false,
 false
 ],
+
 hasRolled:false,
+
 target:null,
+
 mode:null,
+
 lastHold:null,
+
 canUndo:null,
+
 banner:{
 text:
 'Wacht op spelers / start door admin.',
 type:''
 },
+
 log:[],
+
 chat:[],
+
 version:0
+
 };
 
+
 const p={
+
 id:id(),
+
 name:String(
 name||'Admin'
 ).slice(0,18),
+
 balance:100,
+
 active:true,
+
 admin:true,
+
 adminToken:token()
+
 };
+
 
 r.players.push(p);
 
@@ -1426,24 +2757,46 @@ r.code,
 r
 );
 
-return [r,p]
+return [
+r,
+p
+];
+
 }
 
-function json(res,obj,status=200){
 
-const s=JSON.stringify(obj);
+/* =========================================
+   JSON
+========================================= */
+
+function json(
+res,
+obj,
+status=200
+){
+
+const s=
+JSON.stringify(obj);
 
 res.writeHead(
 status,
 {
 'Content-Type':
 'application/json; charset=utf-8',
-'Cache-Control':'no-store'
+
+'Cache-Control':
+'no-store'
 }
 );
 
-res.end(s)
+res.end(s);
+
 }
+
+
+/* =========================================
+   BODY
+========================================= */
 
 function getBody(req){
 
@@ -1458,10 +2811,15 @@ function(c){
 
 d+=c;
 
-if(d.length>100000)
+if(d.length>100000){
+
 reject(
-Error('Payload te groot')
+Error(
+'Payload te groot'
+)
 );
+
+}
 
 }
 );
@@ -1481,24 +2839,38 @@ JSON.parse(d):
 }catch(e){
 
 reject(
-Error('Ongeldige JSON')
-);
-
-}
-
-}
-);
-
-}
+Error(
+'Ongeldige JSON'
 )
+);
+
 }
+
+}
+);
+
+}
+);
+
+}
+
+
+/* =========================================
+   SESSION
+========================================= */
 
 function session(req){
 
 return sessions.get(
 req.headers['x-session']
-)
+);
+
 }
+
+
+/* =========================================
+   HTTP SERVER
+========================================= */
 
 const server=
 http.createServer(
@@ -1512,6 +2884,9 @@ req.url,
 'http://localhost'
 );
 
+
+/* HOME */
+
 if(
 req.method==='GET' &&
 u.pathname==='/'
@@ -1522,12 +2897,18 @@ res.writeHead(
 {
 'Content-Type':
 'text/html; charset=utf-8',
-'Cache-Control':'no-store'
+
+'Cache-Control':
+'no-store'
 }
 );
 
-return res.end(HTML)
+return res.end(HTML);
+
 }
+
+
+/* HEALTH */
 
 if(
 req.method==='GET' &&
@@ -1537,8 +2918,12 @@ u.pathname==='/health'
 return json(
 res,
 {ok:true}
-)
+);
+
 }
+
+
+/* STATE */
 
 if(
 req.method==='GET' &&
@@ -1547,38 +2932,55 @@ u.pathname==='/api/state'
 
 const s=session(req);
 
-if(!s)
+if(!s){
+
 return json(
 res,
 {error:'Geen sessie'},
 401
 );
 
+}
+
 return json(
 res,
 {
-state:state(
+state:
+state(
 s.room,
 s.player
 ),
-version:s.room.version,
-chat:s.room.chat,
-me:s.player.id
+
+version:
+s.room.version,
+
+chat:
+s.room.chat,
+
+me:
+s.player.id
 }
-)
+);
+
 }
+
+
+/* CREATE */
 
 if(
 req.method==='POST' &&
 u.pathname==='/api/create'
 ){
 
-const b=await getBody(req);
+const b=
+await getBody(req);
 
-const pair=createRoom(b.name);
+const pair=
+createRoom(b.name);
 
 const r=pair[0];
 const p=pair[1];
+
 const t=token();
 
 sessions.set(
@@ -1593,21 +2995,34 @@ return json(
 res,
 {
 token:t,
-adminToken:p.adminToken,
-state:state(r,p),
-version:r.version,
+
+adminToken:
+p.adminToken,
+
+state:
+state(r,p),
+
+version:
+r.version,
+
 chat:r.chat,
+
 me:p.id
 }
-)
+);
+
 }
+
+
+/* JOIN */
 
 if(
 req.method==='POST' &&
 u.pathname==='/api/join'
 ){
 
-const b=await getBody(req);
+const b=
+await getBody(req);
 
 const r=
 rooms.get(
@@ -1616,29 +3031,44 @@ b.room||''
 ).toUpperCase()
 );
 
-if(!r)
+if(!r){
+
 throw Error(
 'Tafel niet gevonden.'
 );
 
-if(r.started)
+}
+
+if(r.started){
+
 throw Error(
 'Dit spel is al gestart.'
 );
 
-if(r.players.length>=4)
+}
+
+if(r.players.length>=4){
+
 throw Error(
 'Deze tafel zit vol.'
 );
 
+}
+
 const p={
+
 id:id(),
+
 name:String(
 b.name||'Speler'
 ).slice(0,18),
+
 balance:100,
+
 active:true,
+
 admin:false
+
 };
 
 r.players.push(p);
@@ -1659,13 +3089,23 @@ return json(
 res,
 {
 token:t,
-state:state(r,p),
-version:r.version,
+
+state:
+state(r,p),
+
+version:
+r.version,
+
 chat:r.chat,
+
 me:p.id
 }
-)
+);
+
 }
+
+
+/* ACTION */
 
 if(
 req.method==='POST' &&
@@ -1674,14 +3114,18 @@ u.pathname==='/api/action'
 
 const s=session(req);
 
-if(!s)
+if(!s){
+
 return json(
 res,
 {error:'Geen sessie'},
 401
 );
 
-const b=await getBody(req);
+}
+
+const b=
+await getBody(req);
 
 if(
 s.player.admin &&
@@ -1710,16 +3154,27 @@ b
 return json(
 res,
 {
-state:state(
+state:
+state(
 s.room,
 s.player
 ),
-version:s.room.version,
-chat:s.room.chat,
-me:s.player.id
+
+version:
+s.room.version,
+
+chat:
+s.room.chat,
+
+me:
+s.player.id
 }
-)
+);
+
 }
+
+
+/* CHAT */
 
 if(
 req.method==='POST' &&
@@ -1728,24 +3183,34 @@ u.pathname==='/api/chat'
 
 const s=session(req);
 
-if(!s)
+if(!s){
+
 return json(
 res,
 {error:'Geen sessie'},
 401
 );
 
-const b=await getBody(req);
+}
 
-s.room.chat.push({
+const b=
+await getBody(req);
+
+s.room.chat.push(
+{
 name:s.player.name,
+
 text:String(
 b.text||''
 ).slice(0,120)
-});
+}
+);
 
-if(s.room.chat.length>100)
+if(s.room.chat.length>100){
+
 s.room.chat.shift();
+
+}
 
 push(s.room);
 
@@ -1755,14 +3220,19 @@ res,
 ok:true,
 version:s.room.version
 }
-)
+);
+
 }
+
+
+/* NOT FOUND */
 
 return json(
 res,
 {error:'Not found'},
 404
-)
+);
+
 
 }catch(e){
 
@@ -1774,19 +3244,22 @@ e.message||
 'Fout'
 },
 400
-)
+);
 
 }
 
 }
 );
 
+
 server.listen(
 PORT,
 function(){
+
 console.log(
 'Dobbelen 11/24 draait op poort '+
 PORT
-)
+);
+
 }
 );
