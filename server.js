@@ -18,7 +18,8 @@ const HTML = String.raw`<!doctype html>
 
 body{
 margin:0;
-background:radial-gradient(circle at 50% -10%,#610019,#16000d 45%,#07070b);
+background:
+radial-gradient(circle at 50% -10%,#610019,#16000d 45%,#07070b);
 color:#fff;
 font-family:Arial,sans-serif;
 min-height:100vh
@@ -53,7 +54,9 @@ border:2px solid #c99b27;
 box-shadow:0 0 20px #0009
 }
 
-.hidden{display:none!important}
+.hidden{
+display:none!important
+}
 
 .row{
 display:flex;
@@ -87,9 +90,17 @@ button:disabled{
 opacity:.35
 }
 
-.green{background:#118d64}
-.orange{background:#bf7614}
-.blue{background:#123d75}
+.green{
+background:#118d64
+}
+
+.orange{
+background:#bf7614
+}
+
+.blue{
+background:#123d75
+}
 
 .players{
 display:grid;
@@ -180,7 +191,8 @@ width:74px;
 height:74px;
 position:relative;
 cursor:pointer;
-filter:drop-shadow(0 7px 7px #0009)
+filter:drop-shadow(0 7px 7px #0009);
+perspective:600px
 }
 
 .face{
@@ -199,10 +211,11 @@ inset 0 -6px 9px #0003
 }
 
 /* VASTE DOBBELSTEEN */
+
 .die.held{
 filter:
 drop-shadow(0 0 8px #ffd43b)
-drop-shadow(0 0 16px #ffd43b)
+drop-shadow(0 0 17px #ffd43b)
 }
 
 .die.held .face{
@@ -238,30 +251,95 @@ inset 1px 1px 2px #aaa,
 0 1px 2px #420000
 }
 
-/* Alleen losse dobbelstenen krijgen deze animatie */
+/* ECHTE 3D TUMBLE */
+
 .rolling{
-animation:roll .8s ease-in-out
+animation:casinoTumble .95s cubic-bezier(.18,.8,.2,1)
 }
 
-@keyframes roll{
+@keyframes casinoTumble{
+
 0%{
-transform:translateY(0) rotate(0deg) scale(1)
+transform:
+translate3d(0,0,0)
+rotateX(0deg)
+rotateY(0deg)
+rotateZ(0deg)
+scale(1)
 }
-20%{
-transform:translateY(-22px) rotate(100deg) scale(1.08)
+
+12%{
+transform:
+translate3d(-16px,-22px,20px)
+rotateX(130deg)
+rotateY(75deg)
+rotateZ(-55deg)
+scale(1.08)
 }
-40%{
-transform:translateY(5px) rotate(190deg) scale(.94)
+
+25%{
+transform:
+translate3d(19px,8px,-10px)
+rotateX(260deg)
+rotateY(-145deg)
+rotateZ(95deg)
+scale(.93)
 }
-60%{
-transform:translateY(-15px) rotate(280deg) scale(1.06)
+
+38%{
+transform:
+translate3d(-22px,-15px,15px)
+rotateX(410deg)
+rotateY(215deg)
+rotateZ(-135deg)
+scale(1.10)
 }
+
+52%{
+transform:
+translate3d(18px,5px,-15px)
+rotateX(555deg)
+rotateY(-300deg)
+rotateZ(180deg)
+scale(.94)
+}
+
+66%{
+transform:
+translate3d(-13px,-12px,12px)
+rotateX(700deg)
+rotateY(410deg)
+rotateZ(-225deg)
+scale(1.07)
+}
+
 80%{
-transform:translateY(3px) rotate(340deg) scale(.98)
+transform:
+translate3d(8px,4px,-5px)
+rotateX(850deg)
+rotateY(-500deg)
+rotateZ(290deg)
+scale(.98)
 }
+
+92%{
+transform:
+translate3d(-3px,-2px,2px)
+rotateX(980deg)
+rotateY(590deg)
+rotateZ(-330deg)
+scale(1.02)
+}
+
 100%{
-transform:translateY(0) rotate(360deg) scale(1)
+transform:
+translate3d(0,0,0)
+rotateX(1080deg)
+rotateY(-720deg)
+rotateZ(360deg)
+scale(1)
 }
+
 }
 
 .total{
@@ -513,9 +591,7 @@ onclick="act('undoAccept')">
 class="small"
 style="text-align:center;margin-top:8px">
 
-Na iedere worp moet je minimaal
-<strong>1 nieuwe dobbelsteen</strong>
-vastzetten voordat je opnieuw gooit.
+<strong>Na iedere worp moet minimaal 1 nieuwe dobbelsteen worden vastgezet.</strong>
 
 </div>
 
@@ -604,8 +680,6 @@ var version=-1;
 var meId='';
 var timer=null;
 var lastDice='';
-var lastPhase='';
-
 var audioCtx=null;
 
 
@@ -652,6 +726,7 @@ var osc=ctx.createOscillator();
 var gain=ctx.createGain();
 
 osc.type=type||'sine';
+
 osc.frequency.value=freq;
 
 gain.gain.setValueAtTime(
@@ -736,7 +811,7 @@ tone(880,.18,'triangle',.08);
 
 
 /* =========================
-   HULPFUNCTIES
+   HULP
 ========================= */
 
 function esc(s){
@@ -768,7 +843,7 @@ Number(n)
 
 
 /* =========================
-   SERVER
+   API
 ========================= */
 
 async function post(url,data){
@@ -797,7 +872,7 @@ return j;
 
 
 /* =========================
-   TAFEL MAKEN
+   TAFEL
 ========================= */
 
 async function createRoom(){
@@ -838,11 +913,6 @@ alert(e.message);
 }
 
 }
-
-
-/* =========================
-   MEEDOEN
-========================= */
 
 async function joinRoom(){
 
@@ -898,7 +968,6 @@ async function act(a,extra){
 
 try{
 
-/* Geluid bij acties */
 if(a==='begin' || a==='reroll'){
 rollSound();
 }
@@ -1063,7 +1132,7 @@ return s;
 
 
 /* =========================
-   DOBBELSTENEN RENDEREN
+   DOBBELSTENEN
 ========================= */
 
 function renderDice(){
@@ -1128,10 +1197,9 @@ d.innerHTML=html;
 
 
 /*
- Alleen wanneer de dobbelwaarden veranderen
- wordt de animatie uitgevoerd.
-
- Vaste stenen worden bewust overgeslagen.
+ Alleen de losse stenen animeren
+ wanneer er daadwerkelijk opnieuw
+ gegooid is.
 */
 
 var now=state.dice.join(',');
@@ -1149,6 +1217,10 @@ var k=0;
 k<els.length;
 k++
 ){
+
+/*
+ Vaste steen = nooit animeren.
+*/
 
 if(state.held[k]){
 continue;
@@ -1168,12 +1240,12 @@ el.classList.remove(
 );
 
 },
-850+delay
+1050+delay
 );
 
 })(
 els[k],
-k*60
+k*70
 );
 
 }
@@ -1186,14 +1258,12 @@ lastDice=now;
 
 
 /* =========================
-   SCHERM BIJWERKEN
+   SCHERM
 ========================= */
 
 function apply(j){
 
 if(!j||!j.state)return;
-
-var previousPhase=lastPhase;
 
 state=j.state;
 
@@ -1315,7 +1385,10 @@ state.currentId===meId &&
 state.started;
 
 
-/* BEGIN */
+/*
+ BEGIN WORP
+*/
+
 document
 .getElementById('begin')
 .disabled=
@@ -1323,36 +1396,55 @@ document
 state.phase!=='idle';
 
 
-/* OPNIEUW GOOIEN */
+/*
+ OPNIEUW GOOIEN
+
+ Belangrijk:
+
+ mustHold=true betekent:
+ eerst een nieuwe steen vastzetten.
+
+*/
+
 document
 .getElementById('reroll')
 .disabled=
 !mine ||
 !state.hasRolled ||
-(
-state.phase==='main' &&
-(
-!state.held.some(Boolean) ||
-state.held.every(Boolean)
-)
-);
+state.mustHold ||
+state.held.every(Boolean);
 
 
-/* AKKOORD */
+/*
+ AKKOORD
+
+ Ook hier moet eerst minimaal
+ één steen zijn vastgezet.
+*/
+
 document
 .getElementById('accept')
 .disabled=
 !mine ||
 state.phase!=='main' ||
-!state.hasRolled;
+!state.hasRolled ||
+state.mustHold;
 
 
-/* UNDO */
+/*
+ UNDO VASTZETTEN
+*/
+
 document
 .getElementById('undoHold')
 .disabled=
 !mine ||
 !state.lastHold;
+
+
+/*
+ UNDO AKKOORD
+*/
 
 document
 .getElementById('undoAccept')
@@ -1361,7 +1453,10 @@ document
 !state.canUndoAccept;
 
 
-/* ADMIN */
+/*
+ ADMIN
+*/
+
 document
 .getElementById('admin')
 .classList
@@ -1410,7 +1505,9 @@ p.id+
 '';
 
 
-/* LOG */
+/*
+ LOG
+*/
 
 document
 .getElementById('log')
@@ -1428,7 +1525,9 @@ esc(x)+
 .join('');
 
 
-/* CHAT */
+/*
+ CHAT
+*/
 
 if(j.chat){
 
@@ -1457,26 +1556,12 @@ c.scrollTop=c.scrollHeight;
 
 }
 
-
-/* Win-geluid bij nieuwe earn */
-if(
-state.phase==='round' &&
-previousPhase!=='round' &&
-state.mode==='earn'
-){
-
-winSound();
-
-}
-
-lastPhase=state.phase;
-
 }
 
 
-/* =========================
-   AUTOMATISCH LADEN
-========================= */
+/*
+ AUTOMATISCH LADEN
+*/
 
 if(token){
 
@@ -1484,7 +1569,6 @@ loadState();
 poll();
 
 }
-
 
 document
 .getElementById('chatInput')
@@ -1505,9 +1589,9 @@ chatSend();
 </html>`;
 
 
-/* =========================================
+/* =====================================================
    SERVER FUNCTIES
-========================================= */
+===================================================== */
 
 const alphabet=
 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -1634,6 +1718,10 @@ return -1;
 }
 
 
+/* =====================================================
+   BEURT RESET
+===================================================== */
+
 function resetTurn(r){
 
 r.phase='idle';
@@ -1658,6 +1746,15 @@ false
 
 r.hasRolled=false;
 
+/*
+ Bij een nieuwe beurt hoeft er nog
+ geen steen vast te staan.
+ Zodra BEGIN WORP wordt gedaan,
+ wordt mustHold=true.
+*/
+
+r.mustHold=false;
+
 r.target=null;
 r.mode=null;
 
@@ -1677,6 +1774,10 @@ type:''
 
 }
 
+
+/* =====================================================
+   GELD
+===================================================== */
 
 function transfer(r,p,amount,earning){
 
@@ -1730,6 +1831,10 @@ x.balance+amount
 }
 
 
+/* =====================================================
+   STATE
+===================================================== */
+
 function state(r,p){
 
 return {
@@ -1757,6 +1862,13 @@ held:r.held,
 settled:r.settled,
 
 hasRolled:r.hasRolled,
+
+/*
+ Dit is de belangrijkste nieuwe
+ beveiliging.
+*/
+
+mustHold:!!r.mustHold,
 
 target:r.target,
 
@@ -1798,6 +1910,10 @@ r.version++;
 }
 
 
+/* =====================================================
+   VOLGENDE SPELER
+===================================================== */
+
 function finishTurn(r){
 
 const old=
@@ -1829,9 +1945,9 @@ push(r);
 }
 
 
-/* =========================================
-   DOEL
-========================================= */
+/* =====================================================
+   DOEL BEPALEN
+===================================================== */
 
 function targetFor(total){
 
@@ -1876,9 +1992,9 @@ total-11,
 }
 
 
-/* =========================================
+/* =====================================================
    VERDIENEN / BETALEN
-========================================= */
+===================================================== */
 
 function resolveEarnPay(r){
 
@@ -1896,6 +2012,11 @@ r.dice[i]===r.target
 ){
 
 r.settled[i]=true;
+
+/*
+ Doelstenen blijven automatisch vast.
+*/
+
 r.held[i]=true;
 
 hits++;
@@ -1975,14 +2096,16 @@ r.phase='round';
 
 r.hasRolled=true;
 
+r.mustHold=false;
+
 push(r);
 
 }
 
 
-/* =========================================
+/* =====================================================
    AKKOORD
-========================================= */
+===================================================== */
 
 function accept(r){
 
@@ -1995,6 +2118,20 @@ r.phase!=='main' ||
 
 throw Error(
 'Er is niets om te accepteren.'
+);
+
+}
+
+
+/*
+ Na iedere worp moet eerst
+ minimaal één steen worden vastgezet.
+*/
+
+if(r.mustHold){
+
+throw Error(
+'Je moet eerst minimaal 1 dobbelsteen vastzetten.'
 );
 
 }
@@ -2075,8 +2212,12 @@ n:6
 
 
 r.mode=t.mode;
+
 r.target=t.n;
+
 r.phase='round';
+
+r.mustHold=false;
 
 r.banner={
 text:
@@ -2108,9 +2249,9 @@ resolveEarnPay(r);
 }
 
 
-/* =========================================
+/* =====================================================
    ACTIES
-========================================= */
+===================================================== */
 
 function act(r,p,a,b){
 
@@ -2132,7 +2273,7 @@ throw Error(
 }
 
 
-/* SPELER AAN/UIT */
+/* TOGGLE PLAYER */
 
 if(a==='togglePlayer'){
 
@@ -2190,7 +2331,7 @@ return;
 }
 
 
-/* SPELER VERWIJDEREN */
+/* REMOVE PLAYER */
 
 if(a==='removePlayer'){
 
@@ -2252,7 +2393,7 @@ return;
 }
 
 
-/* NIEUW SPEL */
+/* NEW GAME */
 
 if(a==='newGame'){
 
@@ -2283,7 +2424,7 @@ return;
 }
 
 
-/* START SPEL */
+/* START GAME */
 
 if(active(r).length<2){
 
@@ -2331,7 +2472,7 @@ throw Error(
 }
 
 
-/* CONTROLE BEURT */
+/* BEURT CONTROLE */
 
 if(
 !r.players[r.current] ||
@@ -2346,9 +2487,9 @@ throw Error(
 }
 
 
-/* =========================================
+/* =====================================================
    BEGIN WORP
-========================================= */
+===================================================== */
 
 if(a==='begin'){
 
@@ -2380,13 +2521,21 @@ false
 
 r.hasRolled=true;
 
+/*
+ HIER begint de verplichte fase:
+ na deze worp moet minimaal
+ één steen worden vastgezet.
+*/
+
+r.mustHold=true;
+
 r.phase='main';
 
 r.lastHold=null;
 
 r.banner={
 text:
-'Zet minimaal 1 dobbelsteen vast.',
+'VERPLICHT: zet minimaal 1 dobbelsteen vast.',
 type:''
 };
 
@@ -2404,9 +2553,9 @@ return;
 }
 
 
-/* =========================================
+/* =====================================================
    VASTZETTEN
-========================================= */
+===================================================== */
 
 if(a==='hold'){
 
@@ -2425,18 +2574,26 @@ const i=Number(b.index);
 
 if(
 i<0 ||
-i>4 ||
-r.held[i]
+i>4
 ){
 
-return;
+throw Error(
+'Ongeldige dobbelsteen.'
+);
+
+}
+
+if(r.held[i]){
+
+throw Error(
+'Deze dobbelsteen staat al vast.'
+);
 
 }
 
 
 /*
- Bewaar vorige toestand voor
- VASTZETTING TERUG.
+ Bewaar toestand voor UNDO.
 */
 
 r.lastHold={
@@ -2444,11 +2601,24 @@ dice:r.dice.slice(),
 held:r.held.slice()
 };
 
+
+/*
+ Nieuwe steen vastzetten.
+*/
+
 r.held[i]=true;
+
+
+/*
+ Zodra minimaal één nieuwe steen
+ is vastgezet, mag er weer gegooid worden.
+*/
+
+r.mustHold=false;
 
 r.banner={
 text:
-'VAST — kies nog een steen of gooi opnieuw.',
+'VAST — je mag nu opnieuw gooien.',
 type:''
 };
 
@@ -2468,24 +2638,24 @@ return;
 }
 
 
-/* =========================================
+/* =====================================================
    OPNIEUW GOOIEN
-========================================= */
+===================================================== */
 
 if(a==='reroll'){
 
 if(r.phase==='main'){
 
 /*
- Minimaal één steen moet vaststaan.
+ ABSOLUUT VERPLICHT:
+ eerst minimaal één nieuwe steen
+ vastzetten.
 */
 
-if(
-!r.held.some(Boolean)
-){
+if(r.mustHold){
 
 throw Error(
-'Je moet minimaal 1 dobbelsteen vastzetten.'
+'Je moet eerst minimaal 1 nieuwe dobbelsteen vastzetten.'
 );
 
 }
@@ -2493,22 +2663,19 @@ throw Error(
 
 /*
  Alle stenen vast?
- Dan mag er niet meer gegooid worden.
 */
 
-if(
-r.held.every(Boolean)
-){
+if(r.held.every(Boolean)){
 
 throw Error(
-'Alle dobbelstenen staan al vast.'
+'Alle 5 dobbelstenen staan al vast.'
 );
 
 }
 
 
 /*
- ALLEEN LOSSE STENEN GOOIEN
+ Alleen losse stenen opnieuw gooien.
 */
 
 for(
@@ -2525,11 +2692,19 @@ r.dice[i]=die();
 
 }
 
+
+/*
+ NIEUWE WORP = opnieuw verplicht
+ minimaal één nieuwe steen vastzetten.
+*/
+
+r.mustHold=true;
+
 r.lastHold=null;
 
 r.banner={
 text:
-'Nieuwe worp — zet weer minimaal 1 steen vast.',
+'Nieuwe worp — VERPLICHT minimaal 1 nieuwe steen vastzetten.',
 type:''
 };
 
@@ -2547,9 +2722,9 @@ return;
 }
 
 
-/* =========================================
-   VERDIENEN / BETALEN RONDE
-========================================= */
+/* =====================================================
+   EARN / PAY RONDE
+===================================================== */
 
 if(r.phase==='round'){
 
@@ -2576,9 +2751,9 @@ return;
 }
 
 
-/* =========================================
+/* =====================================================
    AKKOORD
-========================================= */
+===================================================== */
 
 if(a==='accept'){
 
@@ -2589,9 +2764,9 @@ return;
 }
 
 
-/* =========================================
+/* =====================================================
    VASTZETTING TERUG
-========================================= */
+===================================================== */
 
 if(a==='undoHold'){
 
@@ -2609,11 +2784,19 @@ r.lastHold.dice.slice();
 r.held=
 r.lastHold.held.slice();
 
+/*
+ Omdat de vorige actie een vastzetting
+ was, moet de speler weer vastzetten
+ voordat er opnieuw gegooid mag worden.
+*/
+
+r.mustHold=true;
+
 r.lastHold=null;
 
 r.banner={
 text:
-'Laatste vastzetting teruggezet.',
+'Vastzetting terug — zet opnieuw minimaal 1 steen vast.',
 type:''
 };
 
@@ -2624,9 +2807,9 @@ return;
 }
 
 
-/* =========================================
+/* =====================================================
    AKKOORD TERUG
-========================================= */
+===================================================== */
 
 if(a==='undoAccept'){
 
@@ -2650,6 +2833,10 @@ r.canUndo=null;
 
 r.target=null;
 
+r.mode=null;
+
+r.mustHold=false;
+
 r.banner={
 text:
 'AKKOORD terug — je kunt verder spelen.',
@@ -2670,9 +2857,9 @@ throw Error(
 }
 
 
-/* =========================================
-   TAFEL MAKEN
-========================================= */
+/* =====================================================
+   ROOM MAKEN
+===================================================== */
 
 function createRoom(name){
 
@@ -2707,6 +2894,12 @@ false
 ],
 
 hasRolled:false,
+
+/*
+ Nieuwe serverbeveiliging.
+*/
+
+mustHold:false,
 
 target:null,
 
@@ -2765,9 +2958,9 @@ p
 }
 
 
-/* =========================================
+/* =====================================================
    JSON
-========================================= */
+===================================================== */
 
 function json(
 res,
@@ -2794,9 +2987,9 @@ res.end(s);
 }
 
 
-/* =========================================
+/* =====================================================
    BODY
-========================================= */
+===================================================== */
 
 function getBody(req){
 
@@ -2855,9 +3048,9 @@ Error(
 }
 
 
-/* =========================================
+/* =====================================================
    SESSION
-========================================= */
+===================================================== */
 
 function session(req){
 
@@ -2868,9 +3061,9 @@ req.headers['x-session']
 }
 
 
-/* =========================================
+/* =====================================================
    HTTP SERVER
-========================================= */
+===================================================== */
 
 const server=
 http.createServer(
