@@ -1,1205 +1,1458 @@
-const http = require("http");
-const WebSocket = require("ws");
+const http = require('http');
+const WebSocket = require('ws');
 
 const PORT = process.env.PORT || 3000;
 const rooms = new Map();
 
 const MAX_PLAYERS = 4;
 const START_BALANCE = 100;
-const DICE_COUNT = 5;
 const EURO_PER_EYE = 0.50;
+const DICE_COUNT = 5;
 
-const server = http.createServer((req, res) => {
-  if (req.url === "/" || req.url === "/health") {
-    res.writeHead(200, {
-      "Content-Type": "application/json; charset=utf-8"
-    });
+const html = `<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dobbelspel 11-24</title>
 
-    res.end(JSON.stringify({
-      ok: true,
-      rooms: rooms.size
-    }));
+<style>
+*{box-sizing:border-box}
 
-    return;
-  }
+body{
+margin:0;
+font-family:Arial,sans-serif;
+background:#101827;
+color:#fff;
+min-height:100vh
+}
 
-  res.writeHead(404);
-  res.end("Not found");
+button,input{
+font:inherit
+}
+
+button{
+border:0;
+border-radius:12px;
+padding:12px 16px;
+font-weight:700;
+cursor:pointer;
+background:#18b6a4;
+color:#fff
+}
+
+button:disabled{
+opacity:.45;
+cursor:not-allowed
+}
+
+.wrap{
+max-width:900px;
+margin:auto;
+padding:18px
+}
+
+.card{
+background:#1b2638;
+border:1px solid #304057;
+border-radius:18px;
+padding:18px;
+margin:12px 0;
+box-shadow:0 8px 30px #0004
+}
+
+.logo{
+font-size:28px;
+font-weight:900;
+color:#19c8b4
+}
+
+.muted{
+color:#aeb9c9
+}
+
+.row{
+display:flex;
+gap:10px;
+flex-wrap:wrap
+}
+
+.grow{
+flex:1
+}
+
+.input{
+width:100%;
+padding:13px;
+border-radius:12px;
+border:1px solid #46556d;
+background:#0e1624;
+color:#fff
+}
+
+.hidden{
+display:none
+}
+
+.dice{
+display:flex;
+justify-content:center;
+gap:10px;
+flex-wrap:wrap;
+margin:18px 0
+}
+
+.die{
+width:62px;
+height:62px;
+background:#fff;
+color:#111;
+border-radius:14px;
+display:grid;
+place-items:center;
+font-size:28px;
+font-weight:900;
+border:4px solid transparent
+}
+
+.die.held{
+border-color:#19c8b4;
+transform:translateY(-5px)
+}
+
+.players{
+display:grid;
+grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
+gap:10px
+}
+
+.player{
+background:#111b2a;
+border-radius:12px;
+padding:12px
+}
+
+.me{
+outline:2px solid #19c8b4
+}
+
+.big{
+font-size:42px;
+font-weight:900;
+text-align:center
+}
+
+.status{
+text-align:center;
+font-size:18px;
+margin:10px
+}
+
+.chat{
+height:150px;
+overflow:auto;
+background:#0e1624;
+border-radius:12px;
+padding:10px
+}
+
+.msg{
+margin:5px 0
+}
+
+.danger{
+background:#d94b4b
+}
+
+.secondary{
+background:#40516b
+}
+
+.warn{
+color:#ffd166
+}
+
+.small{
+font-size:13px
+}
+</style>
+</head>
+
+<body>
+
+<div class="wrap">
+
+<div class="logo">
+🎲 Dobbelspel 11-24
+</div>
+
+<div id="home" class="card">
+
+<h2>Welkom</h2>
+
+<p class="muted">
+Speel met maximaal 4 spelers.
+</p>
+
+<input
+id="name"
+class="input"
+maxlength="20"
+placeholder="Je naam">
+
+<div class="row" style="margin-top:10px">
+
+<button onclick="createRoom()">
+Nieuwe kamer
+</button>
+
+<button
+class="secondary"
+onclick="showJoin()">
+Kamer joinen
+</button>
+
+</div>
+
+<div
+id="joinBox"
+class="hidden"
+style="margin-top:12px">
+
+<input
+id="code"
+class="input"
+maxlength="6"
+placeholder="Kamercode">
+
+<button
+style="margin-top:8px"
+onclick="joinRoom()">
+Join kamer
+</button>
+
+</div>
+
+<p id="homeMsg" class="warn"></p>
+
+</div>
+
+
+<div id="game" class="hidden">
+
+<div class="card">
+
+<div class="row">
+
+<div class="grow">
+<b>Kamer:</b>
+<span id="roomCode"></span>
+</div>
+
+<div>
+<b>Saldo:</b>
+€<span id="balance">100.00</span>
+</div>
+
+</div>
+
+<div id="status" class="status"></div>
+
+</div>
+
+
+<div class="card">
+
+<h3>Spelers</h3>
+
+<div
+id="players"
+class="players">
+</div>
+
+</div>
+
+
+<div class="card">
+
+<div
+class="big"
+id="total">
+—
+</div>
+
+<div
+class="muted"
+style="text-align:center">
+Totaal van de dobbelstenen
+</div>
+
+<div
+id="dice"
+class="dice">
+</div>
+
+<div
+class="row"
+style="justify-content:center">
+
+<button
+id="roll"
+onclick="roll()">
+🎲 Gooien
+</button>
+
+<button
+id="hold"
+class="secondary"
+onclick="holdAll()">
+Alles vasthouden
+</button>
+
+<button
+id="agree"
+onclick="agree()">
+Akkoord
+</button>
+
+</div>
+
+</div>
+
+
+<div class="card">
+
+<div class="row">
+
+<button
+id="start"
+onclick="startGame()">
+Start spel
+</button>
+
+<button
+class="danger"
+onclick="leaveRoom()">
+Kamer verlaten
+</button>
+
+</div>
+
+<p class="small muted">
+Regel: totaal 11 t/m 24 = betalen;
+anders verdien je het totaal × €0,50.
+</p>
+
+</div>
+
+
+<div class="card">
+
+<h3>Chat</h3>
+
+<div
+id="chat"
+class="chat">
+</div>
+
+<div
+class="row"
+style="margin-top:8px">
+
+<input
+id="chatInput"
+class="input grow"
+placeholder="Bericht...">
+
+<button onclick="sendChat()">
+Verstuur
+</button>
+
+</div>
+
+</div>
+
+</div>
+
+</div>
+
+
+<script>
+
+let ws;
+let room = null;
+let me = null;
+
+const $ = id => document.getElementById(id);
+
+
+function msg(t){
+$('homeMsg').textContent = t || '';
+}
+
+
+function connect(){
+
+const proto =
+location.protocol === 'https:'
+? 'wss'
+: 'ws';
+
+ws = new WebSocket(
+proto + '://' + location.host
+);
+
+ws.onopen = () => {};
+
+ws.onmessage = e => {
+handle(JSON.parse(e.data));
+};
+
+ws.onclose = () => {
+
+if(room){
+$('status').textContent =
+'Verbinding verbroken';
+}
+
+};
+
+ws.onerror = () => {
+msg('Verbinding mislukt. Probeer opnieuw.');
+};
+
+}
+
+
+function send(type,data={}){
+
+if(ws && ws.readyState === 1){
+
+ws.send(
+JSON.stringify({
+type,
+...data
+})
+);
+
+}
+
+}
+
+
+function getName(){
+
+return $('name').value.trim() || 'Speler';
+
+}
+
+
+function createRoom(){
+
+connect();
+
+setTimeout(() => {
+
+send('create',{
+name:getName()
 });
 
-const wss = new WebSocket.Server({ server });
+},150);
 
-
-function send(ws, data) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(data));
-  }
 }
 
 
-function id() {
-  return Math.random()
-    .toString(36)
-    .slice(2, 10);
+function showJoin(){
+
+$('joinBox').classList.remove('hidden');
+
 }
 
 
-function cleanName(name) {
-  name = typeof name === "string"
-    ? name.trim()
-    : "";
+function joinRoom(){
 
-  return (name || "Speler").slice(0, 20);
+const code =
+$('code').value.trim().toUpperCase();
+
+if(!code){
+
+msg('Vul een kamercode in.');
+
+return;
+
 }
 
+connect();
 
-function makeCode() {
-  let code;
+setTimeout(() => {
 
-  do {
-    code = Math.random()
-      .toString(36)
-      .slice(2, 6)
-      .toUpperCase();
-  } while (rooms.has(code));
-
-  return code;
-}
-
-
-function state(room) {
-  return {
-    code: room.code,
-
-    started: room.started,
-
-    paused: room.paused,
-
-    finished: room.finished,
-
-    phase: room.phase,
-
-    round: room.round,
-
-    rollNumber: room.rollNumber,
-
-    turnPlayerId: room.turnPlayerId,
-
-    dice: room.dice,
-
-    held: room.held,
-
-    total: room.total,
-
-    akkoord: room.akkoord,
-
-    players: room.players.map(p => ({
-      id: p.id,
-
-      name: p.name,
-
-      balance: Number(
-        p.balance.toFixed(2)
-      ),
-
-      admin: p.id === room.adminId,
-
-      connected: !!p.ws
-    }))
-  };
-}
-
-
-function broadcast(room, data) {
-  for (const p of room.players) {
-    send(p.ws, data);
-  }
-}
-
-
-function broadcastState(room) {
-  broadcast(room, {
-    type: "state",
-    state: state(room)
-  });
-}
-
-
-function findPlayer(room, playerId) {
-  return room.players.find(
-    p => p.id === playerId
-  );
-}
-
-
-function createRoom(name, ws) {
-  const player = {
-    id: id(),
-
-    name: cleanName(name),
-
-    balance: START_BALANCE,
-
-    ws
-  };
-
-
-  const room = {
-    code: makeCode(),
-
-    adminId: player.id,
-
-    players: [player],
-
-    started: false,
-
-    paused: false,
-
-    finished: false,
-
-    phase: "waiting",
-
-    round: 0,
-
-    rollNumber: 0,
-
-    turnPlayerId: null,
-
-    dice: [0, 0, 0, 0, 0],
-
-    held: [
-      false,
-      false,
-      false,
-      false,
-      false
-    ],
-
-    total: 0,
-
-    akkoord: {}
-  };
-
-
-  rooms.set(room.code, room);
-
-  ws.roomCode = room.code;
-
-  ws.playerId = player.id;
-
-
-  return {
-    room,
-    player
-  };
-}
-
-
-function joinRoom(code, name, ws) {
-  code = String(code || "")
-    .trim()
-    .toUpperCase();
-
-
-  const room = rooms.get(code);
-
-
-  if (!room) {
-    return {
-      error: "Spelcode bestaat niet."
-    };
-  }
-
-
-  if (room.started) {
-    return {
-      error: "Het spel is al gestart."
-    };
-  }
-
-
-  if (room.players.length >= MAX_PLAYERS) {
-    return {
-      error: "Het spel zit vol."
-    };
-  }
-
-
-  const playerName = cleanName(name);
-
-
-  if (
-    room.players.some(
-      p =>
-        p.name.toLowerCase() ===
-        playerName.toLowerCase()
-    )
-  ) {
-    return {
-      error: "Deze naam is al in gebruik."
-    };
-  }
-
-
-  const player = {
-    id: id(),
-
-    name: playerName,
-
-    balance: START_BALANCE,
-
-    ws
-  };
-
-
-  room.players.push(player);
-
-
-  ws.roomCode = room.code;
-
-  ws.playerId = player.id;
-
-
-  return {
-    room,
-    player
-  };
-}
-
-
-function startGame(room) {
-  if (room.players.length < 2) {
-    return false;
-  }
-
-
-  room.started = true;
-
-  room.paused = false;
-
-  room.finished = false;
-
-  room.phase = "earning";
-
-  room.round = 1;
-
-  room.rollNumber = 0;
-
-  room.turnPlayerId =
-    room.players[0].id;
-
-
-  room.dice = [
-    0,
-    0,
-    0,
-    0,
-    0
-  ];
-
-
-  room.held = [
-    false,
-    false,
-    false,
-    false,
-    false
-  ];
-
-
-  room.total = 0;
-
-  room.akkoord = {};
-
-
-  broadcast(room, {
-    type: "gameStarted",
-
-    state: state(room)
-  });
-
-
-  return true;
-}
-
-
-function roll(room) {
-  for (
-    let i = 0;
-    i < DICE_COUNT;
-    i++
-  ) {
-    if (!room.held[i]) {
-      room.dice[i] =
-        1 +
-        Math.floor(
-          Math.random() * 6
-        );
-    }
-  }
-
-
-  room.rollNumber++;
-
-
-  room.total =
-    room.dice.reduce(
-      (a, b) => a + b,
-      0
-    );
-
-
-  if (
-    room.total >= 11 &&
-    room.total <= 24
-  ) {
-    room.phase = "pay";
-  } else {
-    room.phase = "earn";
-  }
-
-
-  broadcast(room, {
-    type: "diceRolled",
-
-    state: state(room)
-  });
-}
-
-
-function finishTurn(room) {
-  const current =
-    findPlayer(
-      room,
-      room.turnPlayerId
-    );
-
-
-  if (!current) {
-    return;
-  }
-
-
-  const result =
-    room.total >= 11 &&
-    room.total <= 24
-      ? "pay"
-      : "earn";
-
-
-  const number =
-    result === "pay"
-      ? room.total - 10
-      : Math.abs(room.total - 10);
-
-
-  const amount =
-    number * EURO_PER_EYE;
-
-
-  const opponents =
-    room.players.filter(
-      p =>
-        p.id !== current.id &&
-        p.balance > 0
-    );
-
-
-  if (result === "earn") {
-
-    current.balance += amount;
-
-  } else if (opponents.length) {
-
-    const payment =
-      Math.min(
-        current.balance,
-        amount
-      );
-
-
-    current.balance -= payment;
-
-
-    const each =
-      payment / opponents.length;
-
-
-    opponents.forEach(p => {
-      p.balance += each;
-    });
-  }
-
-
-  room.players.forEach(p => {
-    p.balance =
-      Math.max(
-        0,
-        Number(
-          p.balance.toFixed(2)
-        )
-      );
-  });
-
-
-  const alive =
-    room.players.filter(
-      p => p.balance > 0
-    );
-
-
-  if (alive.length <= 1) {
-
-    room.finished = true;
-
-    room.phase = "finished";
-
-
-    broadcast(room, {
-
-      type: "gameFinished",
-
-      winner:
-        alive.length === 1
-          ? {
-              id: alive[0].id,
-
-              name: alive[0].name,
-
-              balance: alive[0].balance
-            }
-          : null,
-
-      state: state(room)
-    });
-
-
-    return;
-  }
-
-
-  const currentIndex =
-    room.players.findIndex(
-      p => p.id === current.id
-    );
-
-
-  let nextIndex =
-    currentIndex;
-
-
-  for (
-    let i = 1;
-    i <= room.players.length;
-    i++
-  ) {
-
-    const index =
-      (currentIndex + i) %
-      room.players.length;
-
-
-    if (
-      room.players[index].balance > 0
-    ) {
-
-      nextIndex = index;
-
-      break;
-    }
-  }
-
-
-  room.turnPlayerId =
-    room.players[nextIndex].id;
-
-
-  room.round++;
-
-  room.rollNumber = 0;
-
-
-  room.dice = [
-    0,
-    0,
-    0,
-    0,
-    0
-  ];
-
-
-  room.held = [
-    false,
-    false,
-    false,
-    false,
-    false
-  ];
-
-
-  room.total = 0;
-
-  room.phase = "earning";
-
-  room.akkoord = {};
-
-
-  broadcast(room, {
-    type: "turnChanged",
-
-    state: state(room)
-  });
-}
-
-
-function handleMessage(ws, data) {
-
-  const action =
-    data.action ||
-    data.type;
-
-
-  if (
-    action === "create" ||
-    action === "createRoom"
-  ) {
-
-    if (ws.roomCode) {
-
-      return send(ws, {
-        type: "error",
-
-        message:
-          "Je zit al in een spel."
-      });
-    }
-
-
-    const result =
-      createRoom(
-        data.name,
-        ws
-      );
-
-
-    return send(ws, {
-
-      type: "roomCreated",
-
-      code: result.room.code,
-
-      player: {
-
-        id: result.player.id,
-
-        name: result.player.name,
-
-        admin: true,
-
-        balance:
-          result.player.balance
-
-      },
-
-      state:
-        state(result.room)
-    });
-  }
-
-
-  if (
-    action === "join" ||
-    action === "joinRoom"
-  ) {
-
-    if (ws.roomCode) {
-
-      return send(ws, {
-
-        type: "error",
-
-        message:
-          "Je zit al in een spel."
-      });
-    }
-
-
-    const result =
-      joinRoom(
-        data.code,
-        data.name,
-        ws
-      );
-
-
-    if (result.error) {
-
-      return send(ws, {
-
-        type: "error",
-
-        message:
-          result.error
-      });
-    }
-
-
-    send(ws, {
-
-      type: "joined",
-
-      code:
-        result.room.code,
-
-      player: {
-
-        id:
-          result.player.id,
-
-        name:
-          result.player.name,
-
-        admin: false,
-
-        balance:
-          result.player.balance
-      },
-
-      state:
-        state(result.room)
-    });
-
-
-    return broadcast(
-      result.room,
-
-      {
-
-        type:
-          "playerJoined",
-
-        player: {
-
-          id:
-            result.player.id,
-
-          name:
-            result.player.name
-        },
-
-        state:
-          state(result.room)
-      }
-    );
-  }
-
-
-  const room =
-    rooms.get(ws.roomCode);
-
-
-  if (!room) {
-
-    return send(ws, {
-
-      type: "error",
-
-      message:
-        "Je zit niet in een spel."
-    });
-  }
-
-
-  const player =
-    findPlayer(
-      room,
-      ws.playerId
-    );
-
-
-  if (!player) {
-
-    return send(ws, {
-
-      type: "error",
-
-      message:
-        "Speler niet gevonden."
-    });
-  }
-
-
-  if (action === "state") {
-
-    return send(ws, {
-
-      type: "state",
-
-      state:
-        state(room)
-    });
-  }
-
-
-  if (
-    action === "start" ||
-    action === "startGame"
-  ) {
-
-    if (
-      player.id !==
-      room.adminId
-    ) {
-
-      return send(ws, {
-
-        type: "error",
-
-        message:
-          "Alleen de beheerder kan starten."
-      });
-    }
-
-
-    if (
-      room.players.length < 2
-    ) {
-
-      return send(ws, {
-
-        type: "error",
-
-        message:
-          "Er moeten minimaal 2 spelers zijn."
-      });
-    }
-
-
-    if (room.started) {
-
-      return send(ws, {
-
-        type: "error",
-
-        message:
-          "Het spel is al gestart."
-      });
-    }
-
-
-    startGame(room);
-
-    return;
-  }
-
-
-  if (
-    action === "roll" ||
-    action === "throw"
-  ) {
-
-    if (room.paused) {
-
-      return send(ws, {
-
-        type: "error",
-
-        message:
-          "Het spel staat op pauze."
-      });
-    }
-
-
-    if (!room.started) {
-
-      return send(ws, {
-
-        type: "error",
-
-        message:
-          "Het spel is nog niet gestart."
-      });
-    }
-
-
-    if (room.finished) {
-      return;
-    }
-
-
-    if (
-      room.turnPlayerId !==
-      player.id
-    ) {
-
-      return send(ws, {
-
-        type: "error",
-
-        message:
-          "Je bent niet aan de beurt."
-      });
-    }
-
-
-    roll(room);
-
-    return;
-  }
-
-
-  if (
-    action === "hold" ||
-    action === "holdDice"
-  ) {
-
-    if (
-      room.turnPlayerId !==
-      player.id
-    ) {
-
-      return send(ws, {
-
-        type: "error",
-
-        message:
-          "Je bent niet aan de beurt."
-      });
-    }
-
-
-    const indexes =
-      Array.isArray(data.indexes)
-        ? data.indexes
-        : (
-          Array.isArray(
-            data.indices
-          )
-            ? data.indices
-            : []
-        );
-
-
-    indexes.forEach(index => {
-
-      if (
-        Number.isInteger(index) &&
-        index >= 0 &&
-        index < DICE_COUNT
-      ) {
-
-        room.held[index] = true;
-      }
-    });
-
-
-    return broadcastState(room);
-  }
-
-
-  if (action === "holdAll") {
-
-    if (
-      room.turnPlayerId !==
-      player.id
-    ) {
-
-      return send(ws, {
-
-        type: "error",
-
-        message:
-          "Je bent niet aan de beurt."
-      });
-    }
-
-
-    room.held = [
-      true,
-      true,
-      true,
-      true,
-      true
-    ];
-
-
-    return broadcastState(room);
-  }
-
-
-  if (
-    action === "akkoord" ||
-    action === "agree"
-  ) {
-
-    if (
-      room.turnPlayerId !==
-      player.id
-    ) {
-
-      return send(ws, {
-
-        type: "error",
-
-        message:
-          "Je bent niet aan de beurt."
-      });
-    }
-
-
-    room.akkoord[player.id] =
-      true;
-
-
-    const active =
-      room.players.filter(
-        p => p.balance > 0
-      );
-
-
-    const allAgreed =
-      active.every(
-        p =>
-          room.akkoord[p.id]
-      );
-
-
-    if (allAgreed) {
-
-      return finishTurn(room);
-    }
-
-
-    return broadcastState(room);
-  }
-
-
-  if (
-    action === "pause" ||
-    action === "togglePause"
-  ) {
-
-    if (
-      player.id !==
-      room.adminId
-    ) {
-
-      return send(ws, {
-
-        type: "error",
-
-        message:
-          "Alleen de beheerder kan pauzeren."
-      });
-    }
-
-
-    room.paused =
-      !room.paused;
-
-
-    return broadcast(room, {
-
-      type: "paused",
-
-      paused:
-        room.paused,
-
-      state:
-        state(room)
-    });
-  }
-
-
-  if (
-    action === "delete" ||
-    action === "deleteRoom"
-  ) {
-
-    if (
-      player.id !==
-      room.adminId
-    ) {
-
-      return send(ws, {
-
-        type: "error",
-
-        message:
-          "Alleen de beheerder kan het spel verwijderen."
-      });
-    }
-
-
-    broadcast(room, {
-
-      type:
-        "roomDeleted",
-
-      message:
-        "Het spel is verwijderd door de beheerder."
-    });
-
-
-    rooms.delete(
-      room.code
-    );
-
-
-    return;
-  }
-
-
-  if (
-    action === "chat" ||
-    action === "message"
-  ) {
-
-    const message =
-      typeof data.message === "string"
-        ? data.message
-            .trim()
-            .slice(0, 300)
-        : "";
-
-
-    if (!message) {
-      return;
-    }
-
-
-    return broadcast(room, {
-
-      type: "chat",
-
-      message: {
-
-        id: id(),
-
-        playerId:
-          player.id,
-
-        name:
-          player.name,
-
-        message,
-
-        time:
-          Date.now()
-      }
-    });
-  }
-
-
-  send(ws, {
-
-    type: "error",
-
-    message:
-      "Onbekende opdracht: " +
-      String(action)
-  });
-}
-
-
-wss.on("connection", ws => {
-
-  ws.roomCode = null;
-
-  ws.playerId = null;
-
-
-  send(ws, {
-
-    type:
-      "connected",
-
-    message:
-      "Verbonden met de spelserver."
-  });
-
-
-  ws.on("message", raw => {
-
-    try {
-
-      const data =
-        JSON.parse(
-          raw.toString()
-        );
-
-
-      handleMessage(
-        ws,
-        data
-      );
-
-    } catch (error) {
-
-      send(ws, {
-
-        type: "error",
-
-        message:
-          "Ongeldige opdracht."
-      });
-    }
-  });
-
-
-  ws.on("close", () => {
-
-    const room =
-      rooms.get(
-        ws.roomCode
-      );
-
-
-    if (!room) {
-      return;
-    }
-
-
-    const player =
-      findPlayer(
-        room,
-        ws.playerId
-      );
-
-
-    if (!player) {
-      return;
-    }
-
-
-    player.ws = null;
-
-
-    broadcast(room, {
-
-      type:
-        "playerDisconnected",
-
-      playerId:
-        player.id,
-
-      playerName:
-        player.name,
-
-      state:
-        state(room)
-    });
-  });
+send('join',{
+name:getName(),
+code
 });
+
+},150);
+
+}
+
+
+function handle(m){
+
+if(m.type === 'error'){
+
+if(room){
+
+$('status').textContent =
+m.message;
+
+}else{
+
+msg(m.message);
+
+}
+
+return;
+
+}
+
+
+if(m.type === 'joined'){
+
+room = m.room;
+me = m.playerId;
+
+$('home').classList.add('hidden');
+$('game').classList.remove('hidden');
+
+render(m.state);
+
+return;
+
+}
+
+
+if(m.type === 'state'){
+
+render(m.state);
+
+return;
+
+}
+
+
+if(m.type === 'chat'){
+
+const d =
+document.createElement('div');
+
+d.className = 'msg';
+
+d.textContent =
+m.name + ': ' + m.message;
+
+$('chat').appendChild(d);
+
+$('chat').scrollTop =
+$('chat').scrollHeight;
+
+return;
+
+}
+
+}
+
+
+function render(s){
+
+$('roomCode').textContent =
+s.code;
+
+$('balance').textContent =
+(
+s.players.find(p => p.id === me)
+?.balance ?? 100
+).toFixed(2);
+
+$('status').textContent =
+s.message || '';
+
+$('start').disabled =
+s.started ||
+s.players.length < 1;
+
+$('start').textContent =
+s.started
+? 'Spel bezig'
+: 'Start spel';
+
+
+const ps =
+$('players');
+
+ps.innerHTML = '';
+
+
+s.players.forEach(p => {
+
+const d =
+document.createElement('div');
+
+d.className =
+'player' +
+(p.id === me ? ' me' : '');
+
+d.innerHTML =
+'<b>' +
+esc(p.name) +
+'</b><br>€' +
+p.balance.toFixed(2) +
+(p.id === s.turnPlayerId
+? ' 🎯'
+: '');
+
+ps.appendChild(d);
+
+});
+
+
+const dice =
+$('dice');
+
+dice.innerHTML = '';
+
+
+(s.dice || []).forEach((v,i) => {
+
+const d =
+document.createElement('button');
+
+d.className =
+'die' +
+(s.held?.[i]
+? ' held'
+: '');
+
+d.textContent = v;
+
+d.onclick = () => {
+
+send('hold',{
+index:i
+});
+
+};
+
+dice.appendChild(d);
+
+});
+
+
+$('total').textContent =
+s.dice?.length
+? s.dice.reduce((a,b) => a+b,0)
+: '—';
+
+
+const myTurn =
+s.turnPlayerId === me &&
+s.started &&
+!s.turnDone;
+
+
+$('roll').disabled =
+!myTurn ||
+s.rolls >= 3;
+
+$('hold').disabled =
+!myTurn ||
+!s.dice?.length;
+
+$('agree').disabled =
+!myTurn ||
+!s.dice?.length ||
+s.rolls < 1;
+
+}
+
+
+function esc(x){
+
+return String(x).replace(
+/[&<>"']/g,
+c => ({
+'&':'&amp;',
+'<':'&lt;',
+'>':'&gt;',
+'"':'&quot;',
+"'":'&#39;'
+}[c])
+);
+
+}
+
+
+function startGame(){
+
+send('start');
+
+}
+
+
+function roll(){
+
+send('roll');
+
+}
+
+
+function holdAll(){
+
+send('holdAll');
+
+}
+
+
+function agree(){
+
+send('agree');
+
+}
+
+
+function sendChat(){
+
+const x =
+$('chatInput');
+
+const t =
+x.value.trim();
+
+if(t){
+
+send('chat',{
+message:t
+});
+
+x.value = '';
+
+}
+
+}
+
+
+function leaveRoom(){
+
+location.reload();
+
+}
+
+
+connect();
+
+</script>
+
+</body>
+</html>`;
+
+
+function cleanName(name){
+
+return typeof name === 'string'
+? name.trim().slice(0,20) || 'Speler'
+: 'Speler';
+
+}
+
+
+function makeCode(){
+
+let c;
+
+do{
+
+c =
+Math.random()
+.toString(36)
+.slice(2,8)
+.toUpperCase();
+
+}while(rooms.has(c));
+
+return c;
+
+}
+
+
+function playerState(p){
+
+return {
+id:p.id,
+name:p.name,
+balance:p.balance
+};
+
+}
+
+
+function publicState(r){
+
+return {
+
+code:r.code,
+
+started:r.started,
+
+players:
+r.players.map(playerState),
+
+turnPlayerId:
+r.players[r.turn]?.id || null,
+
+dice:r.dice,
+
+held:r.held,
+
+rolls:r.rolls,
+
+turnDone:r.turnDone,
+
+message:r.message
+
+};
+
+}
+
+
+function broadcast(r){
+
+const state =
+publicState(r);
+
+r.clients.forEach(ws => {
+
+send(ws,{
+type:'state',
+state
+});
+
+});
+
+}
+
+
+function send(ws,o){
+
+if(
+ws.readyState ===
+WebSocket.OPEN
+){
+
+ws.send(
+JSON.stringify(o)
+);
+
+}
+
+}
+
+
+function finishTurn(r){
+
+const p =
+r.players[r.turn];
+
+const total =
+r.dice.reduce(
+(a,b) => a+b,
+0
+);
+
+let amount;
+
+
+if(total >= 11 && total <= 24){
+
+amount =
+-total * EURO_PER_EYE;
+
+p.balance =
+Math.max(
+0,
+p.balance + amount
+);
+
+r.message =
+p.name +
+' betaalt €' +
+(-amount).toFixed(2) +
+' (totaal ' +
+total +
+').';
+
+}else{
+
+amount =
+total * EURO_PER_EYE;
+
+p.balance += amount;
+
+r.message =
+p.name +
+' verdient €' +
+amount.toFixed(2) +
+' (totaal ' +
+total +
+').';
+
+}
+
+
+r.turnDone = true;
+
+
+setTimeout(() => {
+
+if(!rooms.has(r.code))
+return;
+
+r.turn =
+(r.turn + 1) %
+r.players.length;
+
+r.dice = [];
+
+r.held =
+[
+false,
+false,
+false,
+false,
+false
+];
+
+r.rolls = 0;
+
+r.turnDone = false;
+
+r.message =
+r.players[r.turn].name +
+' is aan de beurt.';
+
+broadcast(r);
+
+},1200);
+
+}
+
+
+function onMessage(ws,m){
+
+if(
+!m ||
+typeof m.type !== 'string'
+)
+return;
+
+
+if(m.type === 'create'){
+
+const r = {
+
+code:makeCode(),
+
+started:false,
+
+players:[],
+
+clients:new Set(),
+
+turn:0,
+
+dice:[],
+
+held:[
+false,
+false,
+false,
+false,
+false
+],
+
+rolls:0,
+
+turnDone:false,
+
+message:'Wacht op spelers.'
+
+};
+
+
+const p = {
+
+id:
+Math.random()
+.toString(36)
+.slice(2),
+
+name:
+cleanName(m.name),
+
+balance:
+START_BALANCE,
+
+ws
+
+};
+
+
+r.players.push(p);
+
+r.clients.add(ws);
+
+ws.room = r.code;
+
+rooms.set(r.code,r);
+
+send(ws,{
+
+type:'joined',
+
+room:r.code,
+
+playerId:p.id,
+
+state:publicState(r)
+
+});
+
+return;
+
+}
+
+
+if(m.type === 'join'){
+
+const r =
+rooms.get(
+String(m.code || '')
+.toUpperCase()
+);
+
+
+if(!r){
+
+return send(ws,{
+type:'error',
+message:'Kamer bestaat niet.'
+});
+
+}
+
+
+if(r.started){
+
+return send(ws,{
+type:'error',
+message:'Het spel is al gestart.'
+});
+
+}
+
+
+if(r.players.length >= MAX_PLAYERS){
+
+return send(ws,{
+type:'error',
+message:'Kamer is vol.'
+});
+
+}
+
+
+const p = {
+
+id:
+Math.random()
+.toString(36)
+.slice(2),
+
+name:
+cleanName(m.name),
+
+balance:
+START_BALANCE,
+
+ws
+
+};
+
+
+r.players.push(p);
+
+r.clients.add(ws);
+
+ws.room = r.code;
+
+send(ws,{
+
+type:'joined',
+
+room:r.code,
+
+playerId:p.id,
+
+state:publicState(r)
+
+});
+
+r.message =
+p.name +
+' is toegevoegd.';
+
+broadcast(r);
+
+return;
+
+}
+
+
+const r =
+rooms.get(ws.room);
+
+if(!r)
+return;
+
+
+const p =
+r.players.find(
+x => x.ws === ws
+);
+
+if(!p)
+return;
+
+
+if(m.type === 'start'){
+
+if(r.players.length < 1){
+
+return send(ws,{
+type:'error',
+message:'Er moet minimaal één speler zijn.'
+});
+
+}
+
+r.started = true;
+
+r.turn = 0;
+
+r.message =
+r.players[0].name +
+' is aan de beurt.';
+
+broadcast(r);
+
+return;
+
+}
+
+
+if(m.type === 'roll'){
+
+if(
+!r.started ||
+r.players[r.turn] !== p ||
+r.turnDone ||
+r.rolls >= 3
+)
+return;
+
+
+for(
+let i=0;
+i<DICE_COUNT;
+i++
+){
+
+if(!r.held[i]){
+
+r.dice[i] =
+1 +
+Math.floor(
+Math.random() * 6
+);
+
+}
+
+}
+
+
+r.rolls++;
+
+r.message =
+p.name +
+' heeft gegooid (' +
+r.rolls +
+'/3).';
+
+broadcast(r);
+
+return;
+
+}
+
+
+if(m.type === 'hold'){
+
+if(
+r.players[r.turn] !== p ||
+!r.dice.length ||
+r.turnDone
+)
+return;
+
+
+const i =
+Number(m.index);
+
+
+if(
+Number.isInteger(i) &&
+i >= 0 &&
+i < 5
+){
+
+r.held[i] =
+!r.held[i];
+
+}
+
+broadcast(r);
+
+return;
+
+}
+
+
+if(m.type === 'holdAll'){
+
+if(
+r.players[r.turn] !== p ||
+!r.dice.length ||
+r.turnDone
+)
+return;
+
+
+r.held =
+r.held.map(
+() => true
+);
+
+broadcast(r);
+
+return;
+
+}
+
+
+if(m.type === 'agree'){
+
+if(
+r.players[r.turn] !== p ||
+!r.dice.length ||
+r.rolls < 1 ||
+r.turnDone
+)
+return;
+
+
+finishTurn(r);
+
+broadcast(r);
+
+return;
+
+}
+
+
+if(m.type === 'chat'){
+
+const text =
+String(
+m.message || ''
+)
+.trim()
+.slice(0,200);
+
+
+if(text){
+
+r.clients.forEach(c => {
+
+send(c,{
+
+type:'chat',
+
+name:p.name,
+
+message:text
+
+});
+
+});
+
+}
+
+}
+
+}
+
+
+const server =
+http.createServer(
+(req,res) => {
+
+if(req.url === '/health'){
+
+res.writeHead(
+200,
+{
+'Content-Type':
+'application/json; charset=utf-8'
+}
+);
+
+return res.end(
+JSON.stringify({
+ok:true,
+rooms:rooms.size
+})
+);
+
+}
+
+
+res.writeHead(
+200,
+{
+'Content-Type':
+'text/html; charset=utf-8'
+}
+);
+
+res.end(html);
+
+}
+);
+
+
+const wss =
+new WebSocket.Server({
+server
+});
+
+
+wss.on(
+'connection',
+ws => {
+
+ws.on(
+'message',
+raw => {
+
+try{
+
+onMessage(
+ws,
+JSON.parse(
+raw.toString()
+)
+);
+
+}catch(e){
+
+send(ws,{
+type:'error',
+message:'Ongeldig bericht.'
+});
+
+}
+
+});
+
+
+ws.on(
+'close',
+() => {
+
+const r =
+rooms.get(ws.room);
+
+if(!r)
+return;
+
+
+r.clients.delete(ws);
+
+
+const i =
+r.players.findIndex(
+p => p.ws === ws
+);
+
+
+if(i >= 0){
+
+const name =
+r.players[i].name;
+
+r.players.splice(i,1);
+
+
+if(r.players.length === 0){
+
+rooms.delete(r.code);
+return;
+
+}
+
+
+if(
+r.turn >=
+r.players.length
+){
+
+r.turn = 0;
+
+}
+
+
+r.message =
+name +
+' heeft de kamer verlaten.';
+
+r.turnDone = false;
+
+broadcast(r);
+
+}
+
+});
+
+}
+);
 
 
 server.listen(
-  PORT,
-  () => {
+PORT,
+() => {
 
-    console.log(
-      "Dobbelspel server draait op poort " +
-      PORT
-    );
-  }
+console.log(
+'Dobbelspel server draait op poort ' +
+PORT
+);
+
+}
 );
