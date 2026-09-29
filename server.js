@@ -1,446 +1,1391 @@
-const http = require('http');
-const crypto = require('crypto');
+const http = require("http");
+const crypto = require("crypto");
 
 const PORT = process.env.PORT || 3000;
+
 const rooms = new Map();
 const sessions = new Map();
 
-const HTML = String.raw`<!doctype html>
+/* =========================================================
+   HELPERS
+========================================================= */
+
+function randomCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+  do {
+    code = "";
+    for (let i = 0; i < 6; i++) {
+      code += chars[Math.floor(Math.random() * chars.length)];
+    }
+  } while (rooms.has(code));
+  return code;
+}
+
+function randomDie() {
+  return Math.floor(Math.random() * 6) + 1;
+}
+
+function rollDice(count = 5) {
+  return Array.from({ length: count }, () => randomDie());
+}
+
+function cleanName(name) {
+  name = String(name || "").trim().replace(/\s+/g, " ");
+  if (!name) throw new Error("Vul een speelnaam in.");
+  if (name.length > 20) throw new Error("Je speelnaam mag maximaal 20 tekens zijn.");
+  return name;
+}
+
+function cleanCode(code) {
+  return String(code || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+function newRoom(hostName) {
+  const code = randomCode();
+
+  const room = {
+    code,
+    players: [],
+    admin: null,
+
+    started: false,
+    current: 0,
+
+    phase: "lobby",
+
+    dice: [1, 1, 1, 1, 1],
+    held: [false, false, false, false, false],
+    settled: [false, false, false, false, false],
+
+    hasRolled: false,
+    mustHold: false,
+
+    target: null,
+    mode: null,
+
+    needFreshRoll: false,
+
+    banner: "Maak een kamer en nodig spelers uit.",
+    log: [],
+    chat: [],
+
+    version: 1,
+    rollSeq: 0
+  };
+
+  rooms.set(code, room);
+
+  const player = {
+    id: crypto.randomUUID(),
+    name: hostName,
+    money: 0,
+    active: true
+  };
+
+  room.players.push(player);
+  room.admin = player.id;
+
+  addLog(room, `${hostName} heeft de kamer gemaakt.`);
+
+  return room;
+}
+
+function getSession(req) {
+  const cookie = req.headers.cookie || "";
+  const match = cookie.match(/sid=([^;]+)/);
+
+  if (!match) return null;
+
+  return sessions.get(match[1]) || null;
+}
+
+function createSession(roomCode, playerId) {
+  const sid = crypto.randomBytes(24).toString("hex");
+
+  sessions.set(sid, {
+    roomCode,
+    playerId
+  });
+
+  return sid;
+}
+
+function setCookie(res, sid) {
+  res.setHeader(
+    "Set-Cookie",
+    `sid=${sid}; HttpOnly; Path=/; SameSite=Lax`
+  );
+}
+
+function getPlayer(room, session) {
+  if (!session || session.roomCode !== room.code) return null;
+
+  return room.players.find(p => p.id === session.playerId) || null;
+}
+
+function playerIndex(room, playerId) {
+  return room.players.findIndex(p => p.id === playerId);
+}
+
+function activePlayers(room) {
+  return room.players.filter(p => p.active);
+}
+
+function currentPlayer(room) {
+  const active = activePlayers(room);
+  if (!active.length) return null;
+
+  if (room.current >= room.players.length) {
+    room.current = 0;
+  }
+
+  let p = room.players[room.current];
+
+  if (p && p.active) return p;
+
+  for (let i = 0; i < room.players.length; i++) {
+    const index = (room.current + i) % room.players.length;
+    if (room.players[index].active) {
+      room.current = index;
+      return room.players[index];
+    }
+  }
+
+  return null;
+}
+
+function nextPlayer(room) {
+  const start = room.current;
+
+  for (let i = 1; i <= room.players.length; i++) {
+    const index = (start + i) % room.players.length;
+
+    if (room.players[index].active) {
+      room.current = index;
+      return room.players[index];
+    }
+  }
+
+  return room.players[room.current];
+}
+
+function addLog(room, text) {
+  room.log.unshift({
+    text,
+    time: new Date().toLocaleTimeString("nl-NL", {
+      hour: "2-digit",
+      minute: "2-digit"
+    })
+  });
+
+  room.log = room.log.slice(0, 30);
+}
+
+function bump(room) {
+  room.version++;
+}
+
+/* =========================================================
+   GAME
+========================================================= */
+
+function resetTurn(room) {
+  room.phase = "main";
+
+  room.dice = [1, 1, 1, 1, 1];
+  room.held = [false, false, false, false, false];
+  room.settled = [false, false, false, false, false];
+
+  room.hasRolled = false;
+  room.mustHold = false;
+
+  room.target = null;
+  room.mode = null;
+
+  room.needFreshRoll = false;
+
+  room.rollSeq++;
+}
+
+function startGame(room) {
+  if (activePlayers(room).length < 2) {
+    throw new Error("Er moeten minimaal 2 spelers in de kamer zitten.");
+  }
+
+  room.started = true;
+  room.phase = "main";
+  room.current = room.players.findIndex(p => p.active);
+
+  resetTurn(room);
+
+  const p = currentPlayer(room);
+
+  room.banner = `${p.name} is aan de beurt.`;
+  addLog(room, `Het spel is gestart. ${p.name} begint.`);
+
+  bump(room);
+}
+
+function beginTurn(room) {
+  if (room.phase !== "main") {
+    throw new Error("Je kunt nu geen beginworp doen.");
+  }
+
+  if (room.hasRolled) {
+    throw new Error("Je hebt deze beurt al gegooid.");
+  }
+
+  room.dice = rollDice(5);
+  room.held = [false, false, false, false, false];
+  room.settled = [false, false, false, false, false];
+
+  room.hasRolled = true;
+  room.mustHold = true;
+  room.rollSeq++;
+
+  const p = currentPlayer(room);
+
+  room.banner = `${p.name} heeft gegooid. Houd minimaal 1 nieuwe dobbelsteen vast.`;
+
+  addLog(
+    room,
+    `${p.name} gooide ${room.dice.join(" - ")}.`
+  );
+
+  bump(room);
+}
+
+function holdDie(room, index) {
+  if (room.phase !== "main") {
+    throw new Error("Vasthouden kan alleen tijdens de gewone worpfase.");
+  }
+
+  if (!room.hasRolled) {
+    throw new Error("Doe eerst de beginworp.");
+  }
+
+  if (index < 0 || index >= 5) {
+    throw new Error("Ongeldige dobbelsteen.");
+  }
+
+  if (room.held[index]) {
+    throw new Error("Deze dobbelsteen staat al vast.");
+  }
+
+  room.held[index] = true;
+
+  // Zodra minstens één nieuwe steen is vastgezet,
+  // mag er opnieuw gegooid worden.
+  room.mustHold = false;
+
+  const p = currentPlayer(room);
+
+  room.banner = `${p.name} heeft een dobbelsteen vastgezet.`;
+
+  bump(room);
+}
+
+function mainReroll(room) {
+  if (room.phase !== "main") {
+    throw new Error("Je kunt hier nu niet opnieuw gooien.");
+  }
+
+  if (!room.hasRolled) {
+    throw new Error("Doe eerst de beginworp.");
+  }
+
+  if (room.mustHold) {
+    throw new Error(
+      "Je moet eerst minimaal 1 nieuwe dobbelsteen vasthouden."
+    );
+  }
+
+  const loose = room.dice
+    .map((_, i) => i)
+    .filter(i => !room.held[i]);
+
+  if (!loose.length) {
+    throw new Error("Alle dobbelstenen staan vast.");
+  }
+
+  loose.forEach(i => {
+    room.dice[i] = randomDie();
+  });
+
+  room.rollSeq++;
+
+  // Na iedere worp moet er opnieuw minimaal één nieuwe
+  // dobbelsteen worden vastgehouden.
+  room.mustHold = true;
+
+  const p = currentPlayer(room);
+
+  room.banner =
+    `${p.name} heeft opnieuw gegooid. Houd minimaal 1 nieuwe dobbelsteen vast.`;
+
+  addLog(room, `${p.name} gooide opnieuw: ${room.dice.join(" - ")}.`);
+
+  bump(room);
+}
+
+function diceTotal(room) {
+  return room.dice.reduce((sum, n) => sum + n, 0);
+}
+
+/*
+  11 en 24 zijn speciale worpen.
+
+  Voor andere totalen:
+  - onder 11: afstand tot 11
+  - 12 t/m 17: afstand vanaf 11
+  - 18 t/m 23: afstand tot 24
+  - boven 24: afstand vanaf 24
+
+  Hierdoor ontstaat altijd een doelsteen van 1 t/m 6.
+*/
+
+function determineTarget(total) {
+  if (total === 11 || total === 24) {
+    return null;
+  }
+
+  let target;
+
+  if (total < 11) {
+    target = 11 - total;
+  } else if (total < 18) {
+    target = total - 11;
+  } else if (total < 24) {
+    target = 24 - total;
+  } else {
+    target = total - 24;
+  }
+
+  if (target < 1) target = 1;
+  if (target > 6) target = 6;
+
+  let mode = "earn";
+
+  /*
+    18 t/m 23 wordt de betaalrichting.
+    De overige geldige totalen zijn verdienen.
+  */
+  if (total >= 18 && total <= 23) {
+    mode = "pay";
+  }
+
+  return {
+    target,
+    mode
+  };
+}
+
+function transferMoney(room, fromId, toId, amount) {
+  const from = room.players.find(p => p.id === fromId);
+  const to = room.players.find(p => p.id === toId);
+
+  if (!from || !to) return;
+
+  from.money -= amount;
+  to.money += amount;
+}
+
+function transferToAll(room, playerId, amount, direction) {
+  const p = room.players.find(x => x.id === playerId);
+  if (!p) return;
+
+  const opponents = activePlayers(room).filter(x => x.id !== playerId);
+
+  for (const opponent of opponents) {
+    if (direction === "earn") {
+      opponent.money -= amount;
+      p.money += amount;
+    } else {
+      p.money -= amount;
+      opponent.money += amount;
+    }
+  }
+}
+
+function finishTurn(room) {
+  const p = currentPlayer(room);
+
+  if (p) {
+    room.banner = `${p.name} heeft zijn beurt beëindigd.`;
+  }
+
+  nextPlayer(room);
+
+  const next = currentPlayer(room);
+
+  resetTurn(room);
+
+  if (next) {
+    room.banner = `${next.name} is aan de beurt.`;
+    addLog(room, `${next.name} is nu aan de beurt.`);
+  }
+
+  bump(room);
+}
+
+function acceptMain(room) {
+  if (room.phase !== "main") {
+    throw new Error("Je kunt nu niet akkoord gaan.");
+  }
+
+  if (!room.hasRolled) {
+    throw new Error("Doe eerst een worp.");
+  }
+
+  const total = diceTotal(room);
+  const p = currentPlayer(room);
+
+  /* 11 / 24 = speciale uitbetaling */
+  if (total === 11 || total === 24) {
+    const opponents = activePlayers(room).filter(
+      x => x.id !== p.id
+    );
+
+    for (const opponent of opponents) {
+      opponent.money -= 0.5;
+      p.money += 0.5;
+    }
+
+    room.banner =
+      `${p.name} gooide ${total}! €0,50 van iedere tegenstander.`;
+
+    addLog(
+      room,
+      `${p.name} gooide ${total} en kreeg €0,50 van iedere tegenstander.`
+    );
+
+    finishTurn(room);
+    return;
+  }
+
+  const result = determineTarget(total);
+
+  room.phase = "round";
+
+  room.target = result.target;
+  room.mode = result.mode;
+
+  room.settled = [false, false, false, false, false];
+  room.held = [false, false, false, false, false];
+
+  room.needFreshRoll = false;
+
+  room.banner =
+    `${p.name}: ${result.mode === "earn" ? "VERDIENEN" : "BETALEN"} met ${result.target}'en.`;
+
+  addLog(
+    room,
+    `${p.name} accepteerde totaal ${total}. Doelsteen: ${result.target}.`
+  );
+
+  /*
+    De huidige worp wordt meteen verwerkt.
+    Dus als er bijvoorbeeld twee doelstenen liggen,
+    tellen die direct mee.
+  */
+  resolveRound(room);
+}
+
+function resolveRound(room) {
+  if (room.phase !== "round") return;
+
+  const p = currentPlayer(room);
+
+  if (!p) return;
+
+  const target = room.target;
+
+  if (!target) {
+    finishTurn(room);
+    return;
+  }
+
+  let hits = 0;
+
+  for (let i = 0; i < 5; i++) {
+    if (!room.settled[i] && room.dice[i] === target) {
+      room.settled[i] = true;
+      room.held[i] = true;
+      hits++;
+    }
+  }
+
+  if (hits === 0) {
+    room.banner =
+      `${p.name}: MIS! Geen ${target}. De beurt gaat naar de volgende speler.`;
+
+    addLog(
+      room,
+      `${p.name} had geen ${target} en eindigt de beurt.`
+    );
+
+    finishTurn(room);
+    return;
+  }
+
+  const amount = hits * 5;
+
+  transferToAll(
+    room,
+    p.id,
+    amount,
+    room.mode
+  );
+
+  room.banner =
+    `${room.mode === "earn" ? "VERDIEND" : "BETAALD"}: ${amount} euro (${hits} × €5).`;
+
+  addLog(
+    room,
+    `${p.name}: ${hits}× doelsteen ${target}. ${amount} euro.`
+  );
+
+  const allSettled = room.settled.every(Boolean);
+
+  if (allSettled) {
+    /*
+      VOLLE BAK:
+      alle 5 dobbelstenen zijn doelstenen.
+      Er komt een volledig nieuwe worp van 5 dobbelstenen.
+      Deze worp wordt pas uitgevoerd wanneer de speler
+      opnieuw op de knop drukt.
+    */
+    room.needFreshRoll = true;
+
+    room.banner =
+      `VOLLE BAK! ${p.name} mag opnieuw met 5 dobbelstenen gooien.`;
+
+    addLog(
+      room,
+      `${p.name} had een VOLLE BAK en krijgt 5 nieuwe dobbelstenen.`
+    );
+  } else {
+    room.needFreshRoll = false;
+
+    room.banner =
+      `${p.name}: ${room.mode === "earn" ? "VERDIENEN" : "BETALEN"} met ${target}'en.`;
+  }
+
+  room.hasRolled = true;
+  room.mustHold = false;
+
+  bump(room);
+}
+
+function roundRoll(room) {
+  if (room.phase !== "round") {
+    throw new Error("Je bent niet in de verdien/betaalfase.");
+  }
+
+  const target = room.target;
+
+  if (!target) {
+    throw new Error("Geen doelsteen ingesteld.");
+  }
+
+  /*
+    Na een volle bak moet er een volledig nieuwe set
+    van 5 dobbelstenen komen.
+  */
+  if (room.needFreshRoll) {
+    room.dice = rollDice(5);
+    room.held = [false, false, false, false, false];
+    room.settled = [false, false, false, false, false];
+
+    room.needFreshRoll = false;
+    room.hasRolled = true;
+
+    room.rollSeq++;
+
+    addLog(
+      room,
+      `${currentPlayer(room).name} kreeg een nieuwe set van 5 dobbelstenen: ${room.dice.join(" - ")}.`
+    );
+
+    resolveRound(room);
+    return;
+  }
+
+  const loose = [];
+
+  for (let i = 0; i < 5; i++) {
+    if (!room.settled[i]) {
+      loose.push(i);
+    }
+  }
+
+  if (!loose.length) {
+    room.needFreshRoll = true;
+    bump(room);
+    return;
+  }
+
+  loose.forEach(i => {
+    room.dice[i] = randomDie();
+    room.held[i] = false;
+  });
+
+  room.rollSeq++;
+
+  room.hasRolled = true;
+
+  addLog(
+    room,
+    `${currentPlayer(room).name} gooide opnieuw: ${room.dice.join(" - ")}.`
+  );
+
+  resolveRound(room);
+}
+
+function newGame(room) {
+  if (!room.started) {
+    throw new Error("Het spel is nog niet gestart.");
+  }
+
+  for (const p of room.players) {
+    p.money = 0;
+    p.active = true;
+  }
+
+  room.current = room.players.findIndex(p => p.id === room.admin);
+
+  resetTurn(room);
+
+  const p = currentPlayer(room);
+
+  room.banner = `${p.name} begint een nieuw spel.`;
+
+  addLog(room, "Nieuw spel gestart.");
+
+  bump(room);
+}
+
+/* =========================================================
+   CHAT
+========================================================= */
+
+function sendChat(room, player, message) {
+  message = String(message || "").trim();
+
+  if (!message) return;
+
+  if (message.length > 200) {
+    throw new Error("Bericht is te lang.");
+  }
+
+  room.chat.push({
+    id: crypto.randomUUID(),
+    player: player.name,
+    message,
+    time: new Date().toLocaleTimeString("nl-NL", {
+      hour: "2-digit",
+      minute: "2-digit"
+    })
+  });
+
+  room.chat = room.chat.slice(-50);
+
+  bump(room);
+}
+
+/* =========================================================
+   STATE
+========================================================= */
+
+function publicState(room, player) {
+  const current = currentPlayer(room);
+
+  return {
+    ok: true,
+
+    room: {
+      code: room.code,
+      started: room.started,
+      phase: room.phase,
+      banner: room.banner,
+
+      currentPlayerId: current ? current.id : null,
+
+      dice: room.dice,
+      held: room.held,
+      settled: room.settled,
+
+      hasRolled: room.hasRolled,
+      mustHold: room.mustHold,
+
+      target: room.target,
+      mode: room.mode,
+      needFreshRoll: room.needFreshRoll,
+
+      version: room.version,
+      rollSeq: room.rollSeq
+    },
+
+    me: player
+      ? {
+          id: player.id,
+          name: player.name,
+          money: player.money,
+          isAdmin: player.id === room.admin
+        }
+      : null,
+
+    players: room.players.map(p => ({
+      id: p.id,
+      name: p.name,
+      money: p.money,
+      active: p.active,
+      isAdmin: p.id === room.admin
+    })),
+
+    log: room.log,
+    chat: room.chat
+  };
+}
+
+/* =========================================================
+   ACTIONS
+========================================================= */
+
+function performAction(room, player, body) {
+  const action = body.action;
+
+  if (!player) {
+    throw new Error("Geen speler gevonden.");
+  }
+
+  const pi = playerIndex(room, player.id);
+
+  if (pi < 0) {
+    throw new Error("Speler zit niet in deze kamer.");
+  }
+
+  /*
+    Admin-acties
+  */
+  if (action === "start") {
+    if (player.id !== room.admin) {
+      throw new Error("Alleen de beheerder kan het spel starten.");
+    }
+
+    startGame(room);
+    return;
+  }
+
+  if (action === "newGame") {
+    if (player.id !== room.admin) {
+      throw new Error("Alleen de beheerder kan een nieuw spel starten.");
+    }
+
+    newGame(room);
+    return;
+  }
+
+  if (action === "removePlayer") {
+    if (player.id !== room.admin) {
+      throw new Error("Alleen de beheerder kan spelers verwijderen.");
+    }
+
+    const targetId = String(body.playerId || "");
+
+    if (targetId === room.admin) {
+      throw new Error("De beheerder kan zichzelf niet verwijderen.");
+    }
+
+    const target = room.players.find(p => p.id === targetId);
+
+    if (!target) {
+      throw new Error("Speler niet gevonden.");
+    }
+
+    target.active = false;
+
+    addLog(room, `${target.name} is uit het spel gehaald.`);
+
+    if (room.started && room.current === playerIndex(room, target.id)) {
+      nextPlayer(room);
+      resetTurn(room);
+    }
+
+    bump(room);
+    return;
+  }
+
+  /*
+    Vanaf hier zijn de acties alleen toegestaan
+    voor de speler die aan de beurt is.
+  */
+  if (room.current !== pi) {
+    throw new Error("Het is niet jouw beurt.");
+  }
+
+  if (action === "beginTurn") {
+    beginTurn(room);
+    return;
+  }
+
+  if (action === "hold") {
+    holdDie(room, Number(body.index));
+    return;
+  }
+
+  if (action === "reroll") {
+    mainReroll(room);
+    return;
+  }
+
+  if (action === "accept") {
+    acceptMain(room);
+    return;
+  }
+
+  if (action === "roundRoll") {
+    roundRoll(room);
+    return;
+  }
+
+  if (action === "chat") {
+    sendChat(room, player, body.message);
+    return;
+  }
+
+  throw new Error("Onbekende actie.");
+}
+
+/* =========================================================
+   HTML
+========================================================= */
+
+const HTML = String.raw`<!DOCTYPE html>
 <html lang="nl">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Dobbelen 11/24</title>
+
 <style>
-*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{margin:0;background:#070a13;color:#fff;font-family:Arial,sans-serif}
-body{min-height:100vh;background:radial-gradient(circle at 50% 0,#5c001f 0,#16000c 34%,#070a13 75%)}
-button,input{font:inherit}
-button{border:0;cursor:pointer;font-weight:900;color:#fff}
-button:disabled{opacity:.3;cursor:not-allowed}
-.app{max-width:760px;margin:auto;padding:8px}
-
-.hero{text-align:center;padding:15px 10px 12px}
-.logo{font-size:31px;font-weight:1000;color:#ffd84d;text-shadow:0 0 15px #ff304d,0 3px 4px #000}
-.sub{font-weight:800;color:#ffe7b0;margin-top:3px}
-.dots{color:#ffd43d;letter-spacing:5px;font-size:17px;margin:9px}
-
-.panel{
-  background:linear-gradient(145deg,#172236,#0b111e);
-  border:3px solid #d9a935;
-  border-radius:25px;
-  padding:14px;
-  box-shadow:0 0 20px #0008;
-  margin-bottom:10px
+* {
+  box-sizing: border-box;
 }
 
-.roomCode{
-  font-size:28px;
-  color:#ffd84d;
-  font-weight:1000;
-  letter-spacing:7px;
-  text-align:center
+body {
+  margin: 0;
+  font-family: Arial, Helvetica, sans-serif;
+  background:
+    radial-gradient(circle at top, #172a50 0%, #081126 48%, #030812 100%);
+  color: white;
+  min-height: 100vh;
 }
 
-.small{text-align:center;color:#bfc7d6;font-size:13px}
-
-.players{
-  display:grid;
-  grid-template-columns:repeat(2,1fr);
-  gap:8px;
-  margin-top:12px
+button,
+input {
+  font: inherit;
 }
 
-.player{
-  background:#080f1c;
-  border:1px solid #29364c;
-  border-radius:16px;
-  padding:12px
+button {
+  border: 0;
+  cursor: pointer;
 }
 
-.player.current{
-  border:3px solid #ffd64e;
-  box-shadow:0 0 15px #ffd64e44
+.app {
+  width: min(900px, 100%);
+  margin: auto;
+  padding: 12px;
 }
 
-.name{font-size:18px;font-weight:900}
-.money{font-size:25px;font-weight:1000;margin-top:4px}
-.green{color:#71ff80}
-.status{font-size:12px;color:#9effa8;margin-top:3px}
-
-.msg{
-  padding:14px;
-  text-align:center;
-  background:#080c15;
-  border:2px solid #ffd64e;
-  border-radius:17px;
-  font-size:20px;
-  font-weight:1000;
-  margin:10px 0
+.top {
+  text-align: center;
+  padding: 8px 0 12px;
 }
 
-.invite{
-  width:100%;
-  padding:14px;
-  border-radius:14px;
-  background:linear-gradient(#2475d9,#17468e);
-  border:2px solid #83bbff;
-  margin-top:10px
+.logo {
+  font-size: clamp(25px, 7vw, 44px);
+  font-weight: 900;
+  letter-spacing: 2px;
+  color: #ffd35a;
+  text-shadow:
+    0 3px 0 #8c5800,
+    0 0 20px rgba(255, 194, 50, .35);
 }
 
-.adminBox{
-  border:1px solid #514827;
-  border-radius:16px;
-  padding:12px;
-  margin-top:12px
+.subtitle {
+  color: #bfcce7;
+  font-size: 13px;
+  margin-top: 3px;
 }
 
-.adminTitle{
-  font-size:20px;
-  font-weight:1000;
-  color:#ffd84d
+.card {
+  background:
+    linear-gradient(145deg, rgba(25,43,78,.96), rgba(7,16,34,.98));
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 18px;
+  box-shadow: 0 15px 40px rgba(0,0,0,.35);
+  padding: 16px;
+  margin-bottom: 12px;
 }
 
-.row{
-  display:flex;
-  gap:8px;
-  flex-wrap:wrap
+h2 {
+  margin: 0 0 12px;
+  font-size: 21px;
 }
 
-.btn{
-  padding:13px 16px;
-  border-radius:13px;
-  margin-top:8px
+h3 {
+  margin: 0 0 8px;
 }
 
-.start{
-  background:linear-gradient(#16b878,#08724d);
-  border:2px solid #5bffbb
+label {
+  display: block;
+  color: #b9c7df;
+  font-size: 12px;
+  font-weight: bold;
+  margin: 10px 0 5px;
 }
 
-.new{
-  background:linear-gradient(#3c5d83,#243c5b);
-  border:2px solid #8eb8e8
+input {
+  width: 100%;
+  border: 1px solid #40557c;
+  background: #09142b;
+  color: white;
+  border-radius: 11px;
+  padding: 13px;
+  outline: none;
 }
 
-.game{
-  background:linear-gradient(145deg,#0c4d32,#062719);
-  border:3px solid #d6a534;
-  border-radius:24px;
-  padding:10px
+input:focus {
+  border-color: #ffd15a;
+  box-shadow: 0 0 0 2px rgba(255,209,90,.12);
 }
 
-.turn{
-  background:#07140e;
-  border-radius:14px;
-  padding:12px;
-  text-align:center;
-  font-size:18px;
-  font-weight:1000
+.btn {
+  width: 100%;
+  padding: 14px;
+  margin-top: 10px;
+  border-radius: 12px;
+  font-weight: 900;
+  color: white;
+  background: #2455a6;
+  box-shadow: 0 5px 0 #12356d;
 }
 
-.target{
-  display:none;
-  text-align:center;
-  background:#170d04;
-  border:2px solid #e2b13d;
-  border-radius:14px;
-  padding:9px;
-  margin:8px 0
+.btn:active {
+  transform: translateY(2px);
+  box-shadow: 0 3px 0 #12356d;
 }
 
-.target.show{display:block}
-
-.targetN{
-  font-size:27px;
-  color:#ffd85c;
-  font-weight:1000
+.btn.gold {
+  background: linear-gradient(#ffd96a, #d89715);
+  color: #211500;
+  box-shadow: 0 5px 0 #8a5a00;
 }
 
-.earn{
-  color:#70ff82;
-  font-size:21px;
-  font-weight:1000
+.btn.green {
+  background: linear-gradient(#35d17b, #15954f);
+  box-shadow: 0 5px 0 #096337;
 }
 
-.pay{
-  color:#ff7373;
-  font-size:21px;
-  font-weight:1000
+.btn.orange {
+  background: linear-gradient(#ffb449, #e56b0b);
+  box-shadow: 0 5px 0 #8d3900;
 }
 
-.tray{
-  position:relative;
-  min-height:330px;
-  margin-top:9px;
-  border:2px solid #a87d29;
-  border-radius:19px;
-  overflow:hidden;
-  background:radial-gradient(circle,#176a43,#0b432c 58%,#05271a);
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  flex-wrap:wrap;
-  gap:12px;
-  padding:70px 10px 30px;
-  perspective:1000px
+.btn.red {
+  background: linear-gradient(#ef6262, #b82d2d);
+  box-shadow: 0 5px 0 #6f1717;
 }
 
-.cup{
-  position:absolute;
-  top:10px;
-  left:50%;
-  transform:translateX(-50%);
-  width:110px;
-  height:48px;
-  border-radius:10px 10px 45px 45px;
-  background:linear-gradient(160deg,#f1c75a,#80520d);
-  border:3px solid #ffe07a;
-  box-shadow:0 6px 12px #000
+.btn:disabled {
+  opacity: .38;
+  cursor: not-allowed;
+  transform: none;
 }
 
-.cup:before{
-  content:"";
-  position:absolute;
-  left:50%;
-  top:6px;
-  transform:translateX(-50%);
-  width:78px;
-  height:20px;
-  border-radius:50%;
-  background:#140d04;
-  border:2px solid #f2c85c
+.room-code {
+  font-size: 35px;
+  font-weight: 900;
+  letter-spacing: 5px;
+  text-align: center;
+  color: #ffd45a;
+  margin: 8px 0;
 }
 
-.cup:after{
-  content:"DOBBELBAK";
-  position:absolute;
-  left:50%;
-  top:31px;
-  transform:translateX(-50%);
-  font-size:7px;
-  color:#2b1b00;
-  font-weight:1000
+.invite {
+  background: #0a1730;
+  border: 1px dashed #4d638b;
+  border-radius: 12px;
+  padding: 10px;
+  font-size: 12px;
+  color: #bfcce7;
+  word-break: break-all;
+  margin-top: 8px;
 }
 
-.die{
-  position:relative;
-  width:72px;
-  height:72px;
-  flex:0 0 72px;
-  border-radius:15px;
-  background:linear-gradient(135deg,#ff5948,#d81713 50%,#760500);
-  border:3px solid #ffd85b;
+.player-list {
+  display: grid;
+  gap: 7px;
+}
+
+.player {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(255,255,255,.06);
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.player-name {
+  font-weight: 800;
+}
+
+.badge {
+  font-size: 10px;
+  border-radius: 20px;
+  padding: 4px 7px;
+  background: #2b4168;
+  color: #d9e5ff;
+}
+
+.badge.admin {
+  background: #806016;
+  color: #ffe18a;
+}
+
+.money {
+  color: #62ed9a;
+  font-weight: 900;
+}
+
+.error {
+  background: rgba(160,30,30,.25);
+  border: 1px solid #9b3b3b;
+  color: #ffaaaa;
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 10px;
+  display: none;
+}
+
+.banner {
+  text-align: center;
+  background: linear-gradient(90deg, #162d55, #0c1a34, #162d55);
+  border: 1px solid #314b79;
+  border-radius: 13px;
+  padding: 11px;
+  font-weight: 900;
+  color: #f9d96b;
+  margin-bottom: 10px;
+}
+
+.turn {
+  text-align: center;
+  color: #b7c7e4;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.table {
+  position: relative;
+  overflow: hidden;
+  border-radius: 24px;
+  padding: 18px 10px 22px;
+  background:
+    radial-gradient(ellipse at center, #16774d 0%, #075535 60%, #033724 100%);
+  border: 7px solid #7b4b15;
   box-shadow:
-    inset 4px 4px 9px #ff9c8c99,
-    inset -9px -9px 12px #43000099,
-    0 9px 13px #000a;
-  transform-origin:center;
-  touch-action:manipulation
+    inset 0 0 30px rgba(0,0,0,.45),
+    0 12px 30px rgba(0,0,0,.45);
 }
 
-.die.clickable{cursor:pointer}
+.table::before {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border: 2px solid rgba(255,214,111,.25);
+  border-radius: 18px;
+  pointer-events: none;
+}
 
-.die.held{
+.tray-title {
+  position: relative;
+  text-align: center;
+  color: #ffe092;
+  font-weight: 900;
+  letter-spacing: 2px;
+  margin-bottom: 8px;
+}
+
+.dice-area {
+  position: relative;
+  min-height: 185px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  padding: 10px;
+}
+
+.die {
+  width: 66px;
+  height: 66px;
+  position: relative;
+  border-radius: 15px;
+  background:
+    linear-gradient(145deg, #ff4d4d 0%, #c51212 45%, #720707 100%);
+  border: 3px solid #e7b849;
   box-shadow:
-    0 0 0 3px #ffd43d99,
-    0 0 24px #ffd43d99,
-    inset 4px 4px 9px #ff9c8c99,
-    inset -9px -9px 12px #43000099,
-    0 9px 13px #000a
+    inset -6px -7px 10px rgba(0,0,0,.35),
+    inset 4px 4px 8px rgba(255,255,255,.25),
+    0 7px 12px rgba(0,0,0,.55);
+  user-select: none;
+  transition: transform .18s, filter .18s, box-shadow .18s;
 }
 
-.die.held:after{
-  content:"VAST";
-  position:absolute;
-  bottom:-22px;
-  left:50%;
-  transform:translateX(-50%);
-  background:#e3ad34;
-  color:#261700;
-  border-radius:6px;
-  padding:3px 8px;
-  font-size:8px;
-  font-weight:1000
+.die.clickable {
+  cursor: pointer;
 }
 
-.pip{
-  position:absolute;
-  width:14px;
-  height:14px;
-  border-radius:50%;
-  background:#fff;
-  box-shadow:inset 2px 2px 2px #aaa,0 1px 2px #500
+.die.clickable:hover {
+  transform: translateY(-5px) scale(1.04);
 }
 
-.p1{left:8px;top:8px}
-.p2{left:29px;top:8px}
-.p3{right:8px;top:8px}
-.p4{left:8px;top:29px}
-.p5{left:29px;top:29px}
-.p6{right:8px;top:29px}
-.p7{left:8px;bottom:8px}
-.p8{left:29px;bottom:8px}
-.p9{right:8px;bottom:8px}
-
-.rolling{
-  animation-duration:.8s;
-  animation-fill-mode:both;
-  animation-timing-function:cubic-bezier(.18,.72,.2,1)
+.die.held {
+  border-color: #ffe28b;
+  box-shadow:
+    0 0 0 3px rgba(255,213,72,.18),
+    0 0 22px rgba(255,204,58,.55),
+    inset -6px -7px 10px rgba(0,0,0,.35);
+  filter: brightness(1.08);
 }
 
-.ra{animation-name:ra}
-.rb{animation-name:rb}
-.rc{animation-name:rc}
-.rd{animation-name:rd}
-.re{animation-name:re}
-
-@keyframes ra{
-0%{transform:translate(-130px,-100px) rotate(-20deg) scale(.8)}
-35%{transform:translate(-45px,35px) rotate(180deg) scale(1.08)}
-70%{transform:translate(45px,-20px) rotate(420deg) scale(1.04)}
-100%{transform:translate(0) rotate(700deg) scale(1)}
+.die.settled {
+  border-color: #fff0a5;
+  box-shadow:
+    0 0 0 3px rgba(255,213,72,.3),
+    0 0 28px rgba(255,210,50,.75),
+    inset -6px -7px 10px rgba(0,0,0,.35);
 }
 
-@keyframes rb{
-0%{transform:translate(130px,-100px) rotate(25deg) scale(.8)}
-35%{transform:translate(50px,35px) rotate(-180deg) scale(1.08)}
-70%{transform:translate(-40px,-15px) rotate(-420deg) scale(1.04)}
-100%{transform:translate(0) rotate(-700deg) scale(1)}
+.die.vast::after {
+  content: "VAST";
+  position: absolute;
+  left: 50%;
+  bottom: -18px;
+  transform: translateX(-50%);
+  color: #ffe37a;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 1px;
 }
 
-@keyframes rc{
-0%{transform:translate(-110px,100px) rotate(-35deg) scale(.8)}
-35%{transform:translate(55px,40px) rotate(200deg) scale(1.08)}
-70%{transform:translate(-40px,-35px) rotate(430deg) scale(1.04)}
-100%{transform:translate(0) rotate(680deg) scale(1)}
+.pip {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: white;
+  box-shadow:
+    inset 1px 1px 2px rgba(0,0,0,.25),
+    0 1px 2px rgba(0,0,0,.3);
 }
 
-@keyframes rd{
-0%{transform:translate(110px,100px) rotate(35deg) scale(.8)}
-35%{transform:translate(-50px,40px) rotate(-200deg) scale(1.08)}
-70%{transform:translate(40px,-35px) rotate(-440deg) scale(1.04)}
-100%{transform:translate(0) rotate(-680deg) scale(1)}
+.tl { left: 12px; top: 12px; }
+.tc { left: 50%; top: 12px; transform: translateX(-50%); }
+.tr { right: 12px; top: 12px; }
+.ml { left: 12px; top: 50%; transform: translateY(-50%); }
+.mc { left: 50%; top: 50%; transform: translate(-50%,-50%); }
+.mr { right: 12px; top: 50%; transform: translateY(-50%); }
+.bl { left: 12px; bottom: 12px; }
+.bc { left: 50%; bottom: 12px; transform: translateX(-50%); }
+.br { right: 12px; bottom: 12px; }
+
+.rolling {
+  animation: tumble .55s cubic-bezier(.2,.8,.2,1);
 }
 
-@keyframes re{
-0%{transform:translate(0,-125px) rotate(-30deg) scale(.8)}
-35%{transform:translate(60px,20px) rotate(170deg) scale(1.08)}
-70%{transform:translate(-45px,45px) rotate(420deg) scale(1.04)}
-100%{transform:translate(0) rotate(710deg) scale(1)}
-}
-
-.controls{
-  display:flex;
-  justify-content:center;
-  flex-wrap:wrap;
-  gap:8px;
-  margin-top:8px
-}
-
-.roll{
-  background:linear-gradient(#f2aa2d,#a95d08);
-  border:2px solid #ffdc70
-}
-
-.accept{
-  background:linear-gradient(#2459ad,#09295f);
-  border:2px solid #84b4ff
-}
-
-.undo{
-  background:#5a5f68
-}
-
-.roundRoll{
-  width:100%;
-  padding:16px;
-  border-radius:14px;
-  background:linear-gradient(#f2aa2d,#a95d08);
-  border:3px solid #ffdc70;
-  font-size:18px
-}
-
-.log{
-  margin-top:10px;
-  background:#03060c;
-  border-radius:13px;
-  padding:8px;
-  max-height:180px;
-  overflow:auto;
-  font-size:12px
-}
-
-.log div{
-  padding:5px;
-  border-bottom:1px solid #ffffff10
-}
-
-.chat{
-  margin-top:10px;
-  background:#111b2a;
-  border:2px solid #3778c8;
-  border-radius:18px;
-  overflow:hidden
-}
-
-.chatHead{
-  padding:14px;
-  text-align:center;
-  font-size:20px;
-  font-weight:1000;
-  cursor:pointer
-}
-
-.chatBody{
-  display:none;
-  padding:10px
-}
-
-.chatBody.open{display:block}
-
-.chatMsgs{
-  height:130px;
-  overflow:auto;
-  background:#050913;
-  border-radius:10px;
-  padding:8px;
-  font-size:12px
-}
-
-.chatForm{
-  display:flex;
-  gap:6px;
-  margin-top:7px
-}
-
-.chatForm input{
-  flex:1;
-  min-width:0;
-  padding:11px;
-  border-radius:9px;
-  border:0
-}
-
-.chatForm button{
-  padding:11px;
-  border-radius:9px;
-  background:#2264a7
-}
-
-.hidden{display:none!important}
-
-@media(max-width:600px){
-  .logo{font-size:26px}
-  .players{grid-template-columns:repeat(2,1fr)}
-  .die{
-    width:66px;
-    height:66px;
-    flex-basis:66px
+@keyframes tumble {
+  0% {
+    transform:
+      translate3d(0,0,0)
+      rotateX(0deg)
+      rotateY(0deg)
+      rotateZ(0deg);
   }
-  .tray{
-    min-height:310px;
-    gap:9px
+
+  20% {
+    transform:
+      translate3d(-14px,-20px,0)
+      rotateX(130deg)
+      rotateY(75deg)
+      rotateZ(-35deg);
+  }
+
+  45% {
+    transform:
+      translate3d(15px,9px,0)
+      rotateX(270deg)
+      rotateY(180deg)
+      rotateZ(65deg);
+  }
+
+  70% {
+    transform:
+      translate3d(-10px,-7px,0)
+      rotateX(420deg)
+      rotateY(280deg)
+      rotateZ(-50deg);
+  }
+
+  100% {
+    transform:
+      translate3d(0,0,0)
+      rotateX(540deg)
+      rotateY(360deg)
+      rotateZ(0deg);
+  }
+}
+
+.controls {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.control-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.status-box {
+  text-align: center;
+  background: rgba(0,0,0,.18);
+  border-radius: 12px;
+  padding: 12px;
+  margin-top: 10px;
+}
+
+.big-action {
+  font-size: 18px;
+  padding: 17px;
+}
+
+.target-box {
+  text-align: center;
+  padding: 12px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #111f3c, #09152b);
+  border: 1px solid #41567d;
+  margin-bottom: 10px;
+}
+
+.target-number {
+  font-size: 32px;
+  color: #ffe17b;
+  font-weight: 900;
+}
+
+.target-label {
+  font-size: 12px;
+  color: #b9c8e0;
+  font-weight: 900;
+  letter-spacing: 1px;
+}
+
+.chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.chat-box {
+  display: none;
+}
+
+.chat-box.open {
+  display: block;
+}
+
+.chat-messages {
+  height: 180px;
+  overflow-y: auto;
+  background: #071127;
+  border-radius: 10px;
+  padding: 8px;
+}
+
+.chat-message {
+  margin-bottom: 7px;
+  font-size: 13px;
+}
+
+.chat-message strong {
+  color: #ffd968;
+}
+
+.chat-time {
+  color: #66799c;
+  font-size: 10px;
+  margin-left: 4px;
+}
+
+.chat-input {
+  display: grid;
+  grid-template-columns: 1fr 75px;
+  gap: 7px;
+  margin-top: 7px;
+}
+
+.small {
+  font-size: 11px;
+  color: #8295b7;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.center {
+  text-align: center;
+}
+
+@media (max-width: 560px) {
+  .app {
+    padding: 8px;
+  }
+
+  .card {
+    padding: 12px;
+    border-radius: 15px;
+  }
+
+  .die {
+    width: 57px;
+    height: 57px;
+  }
+
+  .pip {
+    width: 10px;
+    height: 10px;
+  }
+
+  .tl { left: 10px; top: 10px; }
+  .tc { top: 10px; }
+  .tr { right: 10px; top: 10px; }
+  .ml { left: 10px; }
+  .mr { right: 10px; }
+  .bl { left: 10px; bottom: 10px; }
+  .bc { bottom: 10px; }
+  .br { right: 10px; bottom: 10px; }
+
+  .dice-area {
+    gap: 6px;
   }
 }
 </style>
@@ -450,185 +1395,160 @@ button:disabled{opacity:.3;cursor:not-allowed}
 
 <div class="app">
 
-  <div class="hero">
-    <div class="logo">🎲 DOBBELEN 11/24 🎲</div>
-    <div class="sub">Online • gedeelde tafel</div>
-    <div class="dots">● ● ● ● ● ● ● ● ● ● ●</div>
+  <div class="top">
+    <div class="logo">DOBBELEN 11/24</div>
+    <div class="subtitle">Las Vegas multiplayer dice game</div>
   </div>
 
-  <div class="panel" id="lobby">
+  <div id="error" class="error"></div>
 
-    <div class="small">
-      PRIVÉ SPELKAMER
-    </div>
+  <!-- LANDING -->
+  <div id="landing">
 
-    <div class="roomCode" id="roomCode">
-      ------
-    </div>
+    <div class="card">
+      <h2>🎲 Nieuwe speelkamer</h2>
 
-    <div class="small" id="roomHint">
-      Stuur de uitnodigingslink naar je medespeler.
-    </div>
+      <label>SPEELNAAM</label>
+      <input
+        id="createName"
+        maxlength="20"
+        placeholder="Bijvoorbeeld Wesley"
+        autocomplete="off"
+      >
 
-    <button
-      class="invite"
-      onclick="copyInvite()">
-      🔗 SPELERS UITNODIGEN / LINK KOPIËREN
-    </button>
+      <button class="btn gold big-action" onclick="createRoom()">
+        KAMER MAKEN
+      </button>
 
-    <div id="players" class="players"></div>
-
-    <div id="lobbyMsg" class="msg">
-      Wacht op spelers...
-    </div>
-
-    <div id="adminBox" class="adminBox hidden">
-
-      <div class="adminTitle">
-        👑 ADMIN
+      <div class="small center" style="margin-top:8px">
+        Jij wordt automatisch beheerder van de kamer.
       </div>
+    </div>
 
-      <div class="row">
+    <div class="card">
+      <h2>🚪 Meedoen met een kamer</h2>
 
-        <button
-          id="start"
-          class="btn start"
-          onclick="action('start')">
-          ▶️ START SPEL
-        </button>
+      <label>SPEELNAAM</label>
+      <input
+        id="joinName"
+        maxlength="20"
+        placeholder="Bijvoorbeeld Jan"
+        autocomplete="off"
+      >
 
-        <button
-          id="newGame"
-          class="btn new"
-          onclick="action('newGame')">
-          🔄 NIEUW SPEL
-        </button>
+      <label>PRIVÉ SPEELKAMER NUMMER</label>
+      <input
+        id="joinCode"
+        maxlength="6"
+        placeholder="Bijvoorbeeld OF3855"
+        autocomplete="off"
+        style="text-transform:uppercase"
+      >
 
-      </div>
-
+      <button class="btn green big-action" onclick="joinRoom()">
+        SPEL BINNENGAAN
+      </button>
     </div>
 
   </div>
 
-  <div id="gamePanel" class="panel hidden">
+  <!-- LOBBY -->
+  <div id="lobby" class="hidden">
 
-    <div id="turn" class="turn"></div>
+    <div class="card center">
 
-    <div id="message" class="msg"></div>
+      <h2>🎰 PRIVÉ SPEELKAMER</h2>
 
-    <div id="target" class="target">
+      <div class="small">KAMERNUMMER</div>
+      <div id="roomCode" class="room-code"></div>
 
-      <div
-        id="targetN"
-        class="targetN">
-      </div>
+      <button class="btn gold" onclick="copyInvite()">
+        🔗 UITNODIGINGS-LINK KOPIËREN
+      </button>
 
-      <div>
-        DOELSTEEN
-      </div>
-
-      <div id="targetAction"></div>
+      <div id="inviteLink" class="invite"></div>
 
     </div>
 
-    <div class="game">
+    <div class="card">
+      <h2>👥 SPELERS</h2>
 
-      <div class="tray">
+      <div id="lobbyPlayers" class="player-list"></div>
 
-        <div class="cup"></div>
+      <button
+        id="startButton"
+        class="btn green big-action"
+        onclick="sendAction('start')"
+      >
+        🎲 START SPEL
+      </button>
 
-        <div
-          id="dice"
-          class="trayInner">
+      <div id="waitingText" class="small center" style="margin-top:8px"></div>
+    </div>
+
+  </div>
+
+  <!-- GAME -->
+  <div id="game" class="hidden">
+
+    <div class="card">
+
+      <div id="turnText" class="turn"></div>
+
+      <div id="banner" class="banner"></div>
+
+      <div id="targetBox" class="target-box hidden">
+        <div id="targetNumber" class="target-number"></div>
+        <div id="targetLabel" class="target-label"></div>
+      </div>
+
+      <div class="table">
+
+        <div class="tray-title">🎲 DOBBELBAK</div>
+
+        <div id="diceArea" class="dice-area"></div>
+
+      </div>
+
+      <div id="gameControls" class="controls"></div>
+
+    </div>
+
+    <div class="card">
+      <h2>👥 SPELERS</h2>
+      <div id="gamePlayers" class="player-list"></div>
+    </div>
+
+    <div class="card">
+      <div class="chat-header">
+        <h2 style="margin:0">💬 CHAT</h2>
+        <button class="btn" style="width:auto;margin:0;padding:8px 13px" onclick="toggleChat()">
+          CHAT
+        </button>
+      </div>
+
+      <div id="chatBox" class="chat-box">
+
+        <div id="chatMessages" class="chat-messages"></div>
+
+        <div class="chat-input">
+          <input
+            id="chatInput"
+            maxlength="200"
+            placeholder="Typ een bericht..."
+            onkeydown="if(event.key==='Enter') sendChat()"
+          >
+          <button class="btn" style="margin:0" onclick="sendChat()">STUUR</button>
         </div>
 
       </div>
-
-      <div
-        id="mainControls"
-        class="controls">
-
-        <button
-          id="reroll"
-          class="btn roll"
-          onclick="action('reroll')">
-          🎲 OPNIEUW GOOIEN
-        </button>
-
-        <button
-          id="accept"
-          class="btn accept"
-          onclick="action('accept')">
-          ✓ AKKOORD
-        </button>
-
-        <button
-          id="undo"
-          class="btn undo"
-          onclick="action('undo')">
-          ↩ VASTZETTING TERUG
-        </button>
-
-      </div>
-
-      <div
-        id="roundControls"
-        class="controls hidden">
-
-        <button
-          id="roundRoll"
-          class="roundRoll"
-          onclick="action('roundRoll')">
-          🎲 GOOI VOOR VERDIENEN
-        </button>
-
-      </div>
-
-      <div
-        class="small"
-        style="margin-top:9px">
-
-        In de hoofdronde moet vóór iedere nieuwe worp minimaal 1 nieuwe steen vaststaan.
-
-      </div>
-
     </div>
 
-    <div id="log" class="log"></div>
-
-  </div>
-
-  <div class="chat">
-
-    <div
-      class="chatHead"
-      onclick="toggleChat()">
-      💬 CHAT
-    </div>
-
-    <div
-      id="chatBody"
-      class="chatBody">
-
-      <div
-        id="chatMsgs"
-        class="chatMsgs">
-      </div>
-
-      <div class="chatForm">
-
-        <input
-          id="chatInput"
-          maxlength="200"
-          placeholder="Typ een bericht...">
-
-        <button
-          onclick="sendChat()">
-          VERSTUUR
-        </button>
-
-      </div>
-
+    <div id="adminBox" class="card hidden">
+      <h2>⚙️ BEHEERDER</h2>
+      <button class="btn gold" onclick="sendAction('newGame')">
+        🔄 NIEUW SPEL
+      </button>
     </div>
 
   </div>
@@ -636,2358 +1556,939 @@ button:disabled{opacity:.3;cursor:not-allowed}
 </div>
 
 <script>
+let state = null;
+let lastRollSeq = -1;
+let firstLoad = true;
+let chatOpen = false;
 
-let state=null;
-let lastRoll=-1;
-let chatOpen=false;
+const params = new URLSearchParams(location.search);
+const urlRoom = (params.get("room") || "").toUpperCase();
 
-function esc(v){
-  return String(v??'')
-    .replace(/&/g,'&amp;')
-    .replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;')
+if (urlRoom) {
+  document.getElementById("joinCode").value = urlRoom;
 }
 
-function api(url,body){
+/* =========================================================
+   ERROR
+========================================================= */
 
-  return fetch(
-    url,
-    {
-      method:body?'POST':'GET',
+function showError(message) {
+  const box = document.getElementById("error");
+  box.textContent = message;
+  box.style.display = "block";
 
-      headers:
-        body
-          ? {'Content-Type':'application/json'}
-          : {},
+  setTimeout(() => {
+    box.style.display = "none";
+  }, 4000);
+}
 
-      body:
-        body
-          ? JSON.stringify(body)
-          : undefined
+/* =========================================================
+   API
+========================================================= */
 
+async function api(url, options = {}) {
+  const response = await fetch(url, {
+    credentials: "same-origin",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {})
     }
-  ).then(
-    r=>r.json()
-  )
+  });
 
-}
+  const data = await response.json();
 
-function sound(type){
-
-  try{
-
-    const C=
-      window.AudioContext ||
-      window.webkitAudioContext;
-
-    if(!window.ac){
-      window.ac=new C()
-    }
-
-    const c=window.ac;
-
-    c.resume();
-
-    const o=
-      c.createOscillator();
-
-    const g=
-      c.createGain();
-
-    o.connect(g);
-    g.connect(c.destination);
-
-    o.frequency.value=
-      type==='roll'
-        ? 130
-        : type==='hold'
-          ? 520
-          : type==='win'
-            ? 900
-            : type==='pay'
-              ? 170
-              : 650;
-
-    g.gain.setValueAtTime(
-      .001,
-      c.currentTime
-    );
-
-    g.gain.exponentialRampToValueAtTime(
-      .13,
-      c.currentTime+.01
-    );
-
-    g.gain.exponentialRampToValueAtTime(
-      .001,
-      c.currentTime+.18
-    );
-
-    o.start();
-
-    o.stop(
-      c.currentTime+.2
-    );
-
-  }catch(e){}
-
-}
-
-function pips(v){
-
-  return (
-    {
-      1:['p5'],
-      2:['p1','p9'],
-      3:['p1','p5','p9'],
-      4:['p1','p3','p7','p9'],
-      5:['p1','p3','p5','p7','p9'],
-      6:['p1','p3','p4','p6','p7','p9']
-    }
-  )[v]||[];
-
-}
-
-function renderDice(){
-
-  if(!state){
-    return;
+  if (!response.ok || data.error) {
+    throw new Error(data.error || "Er ging iets mis.");
   }
 
-  const d=
-    document.getElementById(
-      'dice'
-    );
-
-  d.innerHTML='';
-
-  const animate=
-    state.rollSeq>
-    lastRoll;
-
-  for(
-    let i=0;
-    i<5;
-    i++
-  ){
-
-    const x=
-      document.createElement(
-        'div'
-      );
-
-    let c='die';
-
-    if(
-      state.held[i]
-    ){
-
-      c+=' held';
-
-    }
-
-    if(
-      animate &&
-      !state.held[i] &&
-      !state.settled[i]
-    ){
-
-      c+=' rolling '+
-        [
-          'ra',
-          'rb',
-          'rc',
-          'rd',
-          're'
-        ][i];
-
-    }
-
-    const selectable=
-      state.phase==='main' &&
-      state.me===state.current &&
-      state.mustHold &&
-      !state.held[i];
-
-    if(selectable){
-      c+=' clickable';
-    }
-
-    x.className=c;
-
-    pips(
-      state.dice[i]
-    ).forEach(
-      p=>{
-
-        const s=
-          document.createElement(
-            'span'
-          );
-
-        s.className=
-          'pip '+p;
-
-        x.appendChild(s);
-
-      }
-    );
-
-    if(selectable){
-
-      x.onclick=
-        ()=>action(
-          'hold',
-          {
-            index:i
-          }
-        );
-
-    }
-
-    d.appendChild(x);
-
-  }
-
-  lastRoll=
-    state.rollSeq;
-
+  return data;
 }
 
-function render(){
+async function createRoom() {
+  try {
+    const name = document.getElementById("createName").value.trim();
 
-  if(!state){
-    return;
-  }
+    const data = await api("/api/create", {
+      method: "POST",
+      body: JSON.stringify({ name })
+    });
 
-  document.getElementById(
-    'roomCode'
-  ).textContent=
-    state.room;
+    history.replaceState({}, "", "/?room=" + data.room.code);
 
-  document.getElementById(
-    'players'
-  ).innerHTML=
-    state.players
-      .map(
-        (p,i)=>
-          '<div class="player '+
-          (
-            i===state.current
-              ? 'current'
-              : ''
-          )+
-          '">'+
-
-          '<div class="name">'+
-          (
-            i===state.admin
-              ? '👑 '
-              : ''
-          )+
-          esc(p.name)+
-          '</div>'+
-
-          '<div class="money">€'+
-          Number(p.money)
-            .toFixed(2)
-            .replace('.',',')+
-          '</div>'+
-
-          '<div class="status">🟢 Actief</div>'+
-
-          '</div>'
-      )
-      .join('');
-
-  document.getElementById(
-    'lobbyMsg'
-  ).textContent=
-    state.phase==='lobby'
-      ? 'WACHT OP SPELERS / START DOOR ADMIN.'
-      : '';
-
-  document.getElementById(
-    'adminBox'
-  ).classList.toggle(
-    'hidden',
-    state.me!==state.admin
-  );
-
-  document.getElementById(
-    'start'
-  ).disabled=
-    state.me!==state.admin ||
-    state.players.filter(
-      p=>p.active
-    ).length<2 ||
-    state.phase!=='lobby';
-
-  document.getElementById(
-    'newGame'
-  ).disabled=
-    state.me!==state.admin;
-
-  const gp=
-    document.getElementById(
-      'gamePanel'
-    );
-
-  gp.classList.toggle(
-    'hidden',
-    state.phase==='lobby'
-  );
-
-  if(
-    state.phase!=='lobby'
-  ){
-
-    document.getElementById(
-      'turn'
-    ).textContent=
-      state.players[
-        state.current
-      ]?.name+
-      ' is aan de beurt.';
-
-    document.getElementById(
-      'message'
-    ).textContent=
-      state.banner;
-
-    document.getElementById(
-      'reroll'
-    ).disabled=
-      state.me!==state.current ||
-      state.phase!=='main' ||
-      !state.hasRolled ||
-      state.mustHold ||
-      state.held.every(Boolean);
-
-    document.getElementById(
-      'accept'
-    ).disabled=
-      state.me!==state.current ||
-      state.phase!=='main' ||
-      !state.hasRolled ||
-      state.mustHold;
-
-    document.getElementById(
-      'undo'
-    ).disabled=
-      state.me!==state.current ||
-      !state.canUndo;
-
-    const t=
-      document.getElementById(
-        'target'
-      );
-
-    t.classList.toggle(
-      'show',
-      state.phase==='round'
-    );
-
-    if(
-      state.phase==='round'
-    ){
-
-      document.getElementById(
-        'targetN'
-      ).textContent=
-        state.target+
-        ' – DOELSTEEN';
-
-      const a=
-        document.getElementById(
-          'targetAction'
-        );
-
-      a.textContent=
-        (
-          state.mode==='earn'
-            ? 'VERDIENEN: '
-            : 'BETALEN: '
-        )+
-        state.target+
-        "'EN";
-
-      a.className=
-        state.mode==='earn'
-          ? 'earn'
-          : 'pay';
-
-      document.getElementById(
-        'roundControls'
-      ).classList.remove(
-        'hidden'
-      );
-
-      document.getElementById(
-        'roundRoll'
-      ).textContent=
-        state.mode==='earn'
-          ? '🎲 GOOI VOOR VERDIENEN'
-          : '🎲 GOOI VOOR BETALEN';
-
-      document.getElementById(
-        'roundRoll'
-      ).disabled=
-        state.me!==state.current;
-
-    }else{
-
-      document.getElementById(
-        'roundControls'
-      ).classList.add(
-        'hidden'
-      );
-
-    }
-
-    renderDice();
-
-    document.getElementById(
-      'log'
-    ).innerHTML=
-      state.log
-        .map(
-          x=>
-            '<div>'+
-            esc(x)+
-            '</div>'
-        )
-        .join('');
-
-  }
-
-  document.getElementById(
-    'chatMsgs'
-  ).innerHTML=
-    state.chat
-      .map(
-        x=>
-          '<div><b>'+
-          esc(x.name)+
-          ':</b> '+
-          esc(x.text)+
-          '</div>'
-      )
-      .join('');
-
-  document.getElementById(
-    'chatMsgs'
-  ).scrollTop=
-    999999;
-
-}
-
-async function action(
-  a,
-  extra={}
-){
-
-  if(
-    a==='start' ||
-    a==='reroll' ||
-    a==='roundRoll'
-  ){
-
-    sound('roll');
-
-  }
-
-  try{
-
-    const r=
-      await api(
-        '/api/action',
-        {
-          action:a,
-          ...extra
-        }
-      );
-
-    if(r.error){
-
-      alert(r.error);
-
-      return;
-
-    }
-
-    state=r;
-
-    if(r.sound){
-      sound(r.sound);
-    }
-
+    state = data;
     render();
 
-  }catch(e){
-
-    alert(
-      'Verbinding mislukt.'
-    );
-
+  } catch (e) {
+    showError(e.message);
   }
-
 }
 
-function toggleChat(){
+async function joinRoom() {
+  try {
+    const name = document.getElementById("joinName").value.trim();
+    const code = document.getElementById("joinCode").value.trim().toUpperCase();
 
-  chatOpen=
-    !chatOpen;
+    const data = await api("/api/join", {
+      method: "POST",
+      body: JSON.stringify({
+        name,
+        code
+      })
+    });
 
-  document
-    .getElementById(
-      'chatBody'
-    )
-    .classList.toggle(
-      'open',
-      chatOpen
-    );
+    history.replaceState({}, "", "/?room=" + data.room.code);
 
-}
-
-async function sendChat(){
-
-  const i=
-    document.getElementById(
-      'chatInput'
-    );
-
-  const text=
-    i.value.trim();
-
-  if(!text){
-    return;
-  }
-
-  i.value='';
-
-  const r=
-    await api(
-      '/api/chat',
-      {
-        text
-      }
-    );
-
-  if(!r.error){
-
-    state=r;
-
+    state = data;
     render();
 
+  } catch (e) {
+    showError(e.message);
   }
-
 }
 
-async function copyInvite(){
+async function sendAction(action, extra = {}) {
+  try {
+    const data = await api("/api/action", {
+      method: "POST",
+      body: JSON.stringify({
+        action,
+        ...extra
+      })
+    });
 
-  const url=
-    location.origin+
-    '/?room='+
-    encodeURIComponent(
-      state.room
-    );
+    state = data;
+    render();
 
-  try{
-
-    await navigator.clipboard.writeText(
-      url
-    );
-
-    alert(
-      'Uitnodigingslink gekopieerd:\n\n'+
-      url
-    );
-
-  }catch(e){
-
-    prompt(
-      'Kopieer deze link:',
-      url
-    );
-
+  } catch (e) {
+    showError(e.message);
   }
-
 }
 
-async function boot(){
+async function sendChat() {
+  const input = document.getElementById("chatInput");
+  const message = input.value.trim();
 
-  const qs=
-    new URLSearchParams(
-      location.search
-    );
+  if (!message) return;
 
-  const room=
-    qs.get('room') ||
-    '';
+  input.value = "";
 
-  let name=
-    localStorage.getItem(
-      'dice_name'
-    );
+  try {
+    await sendAction("chat", { message });
+  } catch (e) {
+    showError(e.message);
+  }
+}
 
-  if(!name){
+/* =========================================================
+   RENDER
+========================================================= */
 
-    name=
-      prompt(
-        'Welke naam wil je gebruiken?'
-      ) ||
-      'Speler';
-
-    name=
-      name
-        .trim()
-        .slice(0,20) ||
-      'Speler';
-
-    localStorage.setItem(
-      'dice_name',
-      name
-    );
-
+function render() {
+  if (!state || !state.me) {
+    document.getElementById("landing").classList.remove("hidden");
+    document.getElementById("lobby").classList.add("hidden");
+    document.getElementById("game").classList.add("hidden");
+    return;
   }
 
-  const r=
-    await api(
-      '/api/join',
-      {
-        room,
-        name
-      }
-    );
+  document.getElementById("landing").classList.add("hidden");
 
-  if(r.error){
+  if (!state.room.started) {
+    document.getElementById("lobby").classList.remove("hidden");
+    document.getElementById("game").classList.add("hidden");
+    renderLobby();
+  } else {
+    document.getElementById("lobby").classList.add("hidden");
+    document.getElementById("game").classList.remove("hidden");
+    renderGame();
+  }
 
-    alert(r.error);
+  renderChat();
+}
+
+function renderLobby() {
+  const room = state.room;
+
+  document.getElementById("roomCode").textContent = room.code;
+
+  const link =
+    location.origin + "/?room=" + encodeURIComponent(room.code);
+
+  document.getElementById("inviteLink").textContent = link;
+
+  const list = document.getElementById("lobbyPlayers");
+
+  list.innerHTML = state.players.map(p => {
+    return \`
+      <div class="player">
+        <div>
+          <div class="player-name">
+            \${escapeHtml(p.name)}
+          </div>
+          <div>
+            <span class="badge \${p.isAdmin ? "admin" : ""}">
+              \${p.isAdmin ? "BEHEERDER" : "SPELER"}
+            </span>
+          </div>
+        </div>
+
+        <div class="money">
+          €\${Number(p.money).toFixed(2)}
+        </div>
+      </div>
+    \`;
+  }).join("");
+
+  const start = document.getElementById("startButton");
+
+  start.disabled =
+    !state.me.isAdmin ||
+    state.players.filter(p => p.active).length < 2;
+
+  const count =
+    state.players.filter(p => p.active).length;
+
+  document.getElementById("waitingText").textContent =
+    count < 2
+      ? "Wacht op minimaal één andere speler..."
+      : "Er zijn genoeg spelers. De beheerder kan het spel starten.";
+}
+
+function renderGame() {
+  const room = state.room;
+
+  const current =
+    state.players.find(p => p.id === room.currentPlayerId);
+
+  document.getElementById("turnText").textContent =
+    current
+      ? "Aan de beurt: " + current.name
+      : "";
+
+  document.getElementById("banner").textContent =
+    room.banner || "";
+
+  renderPlayers();
+  renderDice();
+  renderControls();
+  renderTarget();
+
+  const adminBox = document.getElementById("adminBox");
+
+  if (state.me.isAdmin) {
+    adminBox.classList.remove("hidden");
+  } else {
+    adminBox.classList.add("hidden");
+  }
+}
+
+function renderPlayers() {
+  const list = document.getElementById("gamePlayers");
+
+  list.innerHTML = state.players.map(p => {
+    const current =
+      p.id === state.room.currentPlayerId;
+
+    return \`
+      <div class="player" style="\${current ? "outline:2px solid #ffd45a" : ""}">
+        <div>
+          <div class="player-name">
+            \${current ? "🎲 " : ""}
+            \${escapeHtml(p.name)}
+          </div>
+
+          <div>
+            <span class="badge \${p.isAdmin ? "admin" : ""}">
+              \${p.isAdmin ? "BEHEERDER" : "SPELER"}
+            </span>
+
+            \${current
+              ? '<span class="badge">AAN DE BEURT</span>'
+              : ""}
+          </div>
+        </div>
+
+        <div style="text-align:right">
+          <div class="money">
+            €\${Number(p.money).toFixed(2)}
+          </div>
+
+          \${state.me.isAdmin && !p.isAdmin
+            ? \`
+              <button
+                class="btn red"
+                style="width:auto;padding:5px 8px;margin-top:4px;font-size:10px"
+                onclick="removePlayer('\${p.id}')"
+              >
+                VERWIJDER
+              </button>
+            \`
+            : ""}
+        </div>
+      </div>
+    \`;
+  }).join("");
+}
+
+function removePlayer(id) {
+  if (confirm("Deze speler uit de kamer verwijderen?")) {
+    sendAction("removePlayer", { playerId: id });
+  }
+}
+
+function renderDice() {
+  const area = document.getElementById("diceArea");
+  const room = state.room;
+
+  area.innerHTML = room.dice.map((value, index) => {
+
+    const isHeld =
+      room.phase === "main"
+        ? room.held[index]
+        : room.settled[index];
+
+    const canClick =
+      room.phase === "main" &&
+      state.me.id === room.currentPlayerId &&
+      room.hasRolled &&
+      !room.held[index];
+
+    return \`
+      <div
+        class="die \${isHeld ? "held vast" : ""} \${room.settled[index] ? "settled" : ""} \${canClick ? "clickable" : ""}"
+        data-index="\${index}"
+        onclick="\${canClick ? "holdDie(" + index + ")" : ""}"
+      >
+        \${pips(value)}
+      </div>
+    \`;
+  }).join("");
+
+  if (!firstLoad && lastRollSeq !== room.rollSeq) {
+    animateLooseDice();
+  }
+
+  lastRollSeq = room.rollSeq;
+  firstLoad = false;
+}
+
+function pips(n) {
+  const positions = {
+    1: ["mc"],
+    2: ["tl", "br"],
+    3: ["tl", "mc", "br"],
+    4: ["tl", "tr", "bl", "br"],
+    5: ["tl", "tr", "mc", "bl", "br"],
+    6: ["tl", "tr", "ml", "mr", "bl", "br"]
+  };
+
+  return positions[n]
+    .map(pos => '<span class="pip ' + pos + '"></span>')
+    .join("");
+}
+
+function animateLooseDice() {
+  const room = state.room;
+
+  document.querySelectorAll(".die").forEach((el, index) => {
+    const fixed =
+      room.phase === "round"
+        ? room.settled[index]
+        : room.held[index];
+
+    if (!fixed) {
+      el.classList.add("rolling");
+
+      setTimeout(() => {
+        el.classList.remove("rolling");
+      }, 600);
+    }
+  });
+
+  playRollSound();
+}
+
+function holdDie(index) {
+  sendAction("hold", { index });
+  playHoldSound();
+}
+
+function renderTarget() {
+  const box = document.getElementById("targetBox");
+  const room = state.room;
+
+  if (room.phase !== "round" || !room.target) {
+    box.classList.add("hidden");
+    return;
+  }
+
+  box.classList.remove("hidden");
+
+  document.getElementById("targetNumber").textContent =
+    room.target;
+
+  document.getElementById("targetLabel").textContent =
+    room.mode === "earn"
+      ? "DOELSTEEN — VERDIENEN"
+      : "DOELSTEEN — BETALEN";
+}
+
+function renderControls() {
+  const el = document.getElementById("gameControls");
+  const room = state.room;
+
+  const myTurn =
+    state.me.id === room.currentPlayerId;
+
+  if (!myTurn) {
+    el.innerHTML =
+      '<div class="status-box">Wacht op de worp van de andere speler.</div>';
+    return;
+  }
+
+  /* BEGIN WORP */
+  if (room.phase === "main" && !room.hasRolled) {
+    el.innerHTML = \`
+      <button
+        class="btn gold big-action"
+        onclick="sendAction('beginTurn'); playRollSound()"
+      >
+        🎲 BEGIN WORP
+      </button>
+    \`;
 
     return;
-
   }
 
-  state=r;
+  /* MAIN */
+  if (room.phase === "main") {
 
-  if(!room){
+    const allHeld =
+      room.held.every(Boolean);
 
-    history.replaceState(
-      {},
-      '',
-      '/?room='+
-      encodeURIComponent(
-        r.room
-      )
-    );
+    el.innerHTML = \`
+      <div class="control-row">
 
+        <button
+          class="btn orange"
+          onclick="sendAction('reroll'); playRollSound()"
+          \${room.mustHold || allHeld ? "disabled" : ""}
+        >
+          🎲 OPNIEUW GOOIEN
+        </button>
+
+        <button
+          class="btn"
+          style="background:#163b75;box-shadow:0 5px 0 #0a2146"
+          onclick="sendAction('accept'); playAcceptSound()"
+        >
+          ✓ AKKOORD
+        </button>
+
+      </div>
+
+      <div class="status-box">
+        \${room.mustHold
+          ? "👉 Houd minimaal 1 nieuwe dobbelsteen vast voordat je opnieuw gooit."
+          : allHeld
+            ? "Alle dobbelstenen staan vast. Druk AKKOORD."
+            : "Je mag opnieuw gooien of AKKOORD kiezen."}
+      </div>
+    \`;
+
+    return;
   }
 
-  render();
+  /* VERDIENEN / BETALEN */
+  if (room.phase === "round") {
 
-  setInterval(
-    async()=>{
+    const title =
+      room.mode === "earn"
+        ? "💰 GOoi VOOR VERDIENEN"
+        : "💸 GOOI VOOR BETALEN";
 
-      try{
+    el.innerHTML = \`
+      <button
+        class="btn \${room.mode === "earn" ? "green" : "orange"} big-action"
+        onclick="sendAction('roundRoll'); playRollSound()"
+      >
+        \${title}
+      </button>
 
-        const s=
-          await api(
-            '/api/state'
-          );
+      <div class="status-box">
+        Doelsteen: <strong>\${room.target}'en</strong><br>
+        \${room.needFreshRoll
+          ? "VOLLE BAK! De volgende worp is een nieuwe set van 5."
+          : "Doelstenen worden automatisch vastgezet."}
+      </div>
+    \`;
 
-        if(
-          !s.error &&
-          (
-            !state ||
-            s.version!==
-            state.version
-          )
-        ){
-
-          state=s;
-
-          render();
-
-        }
-
-      }catch(e){}
-
-    },
-    600
-  );
-
+    return;
+  }
 }
 
-document
-  .getElementById(
-    'chatInput'
-  )
-  .addEventListener(
-    'keydown',
-    e=>{
+/* =========================================================
+   CHAT
+========================================================= */
 
-      if(
-        e.key==='Enter'
-      ){
+function toggleChat() {
+  chatOpen = !chatOpen;
 
-        sendChat();
+  const box = document.getElementById("chatBox");
 
-      }
+  if (chatOpen) {
+    box.classList.add("open");
+  } else {
+    box.classList.remove("open");
+  }
+}
 
-    }
+function renderChat() {
+  const box = document.getElementById("chatMessages");
+
+  box.innerHTML = state.chat.map(m => \`
+    <div class="chat-message">
+      <strong>\${escapeHtml(m.player)}</strong>
+      <span class="chat-time">\${escapeHtml(m.time)}</span><br>
+      \${escapeHtml(m.message)}
+    </div>
+  \`).join("");
+
+  box.scrollTop = box.scrollHeight;
+}
+
+/* =========================================================
+   INVITE
+========================================================= */
+
+async function copyInvite() {
+  const link =
+    location.origin + "/?room=" + state.room.code;
+
+  try {
+    await navigator.clipboard.writeText(link);
+
+    const button = event.target;
+    const old = button.textContent;
+
+    button.textContent = "✓ LINK GEKOPIEERD";
+
+    setTimeout(() => {
+      button.textContent = old;
+    }, 1800);
+
+  } catch {
+    prompt("Kopieer deze uitnodigingslink:", link);
+  }
+}
+
+/* =========================================================
+   SOUND
+========================================================= */
+
+let audioCtx = null;
+
+function audio() {
+  if (!audioCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+
+    if (!AC) return null;
+
+    audioCtx = new AC();
+  }
+
+  if (audioCtx.state === "suspended") {
+    audioCtx.resume();
+  }
+
+  return audioCtx;
+}
+
+function beep(freq, duration, type = "sine", volume = .06) {
+  const ctx = audio();
+
+  if (!ctx) return;
+
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+
+  osc.type = type;
+  osc.frequency.value = freq;
+
+  gain.gain.setValueAtTime(volume, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(
+    .001,
+    ctx.currentTime + duration
   );
 
-boot();
+  osc.connect(gain);
+  gain.connect(ctx.destination);
 
+  osc.start();
+  osc.stop(ctx.currentTime + duration);
+}
+
+function playRollSound() {
+  beep(90, .08, "square", .045);
+
+  setTimeout(() => beep(130, .08, "square", .035), 70);
+  setTimeout(() => beep(180, .1, "square", .025), 140);
+}
+
+function playHoldSound() {
+  beep(420, .08, "triangle", .07);
+  setTimeout(() => beep(620, .1, "triangle", .05), 70);
+}
+
+function playAcceptSound() {
+  beep(500, .1, "triangle", .06);
+  setTimeout(() => beep(800, .15, "triangle", .05), 90);
+}
+
+/* =========================================================
+   POLLING
+========================================================= */
+
+async function poll() {
+  try {
+    const data = await api("/api/state");
+
+    if (data && data.me) {
+      state = data;
+      render();
+    }
+
+  } catch (e) {
+    /*
+      Als de gebruiker nog niet is ingelogd is dit normaal.
+    */
+  }
+}
+
+setInterval(poll, 800);
+
+poll();
+
+/* =========================================================
+   UTILS
+========================================================= */
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
 </script>
 
 </body>
 </html>`;
 
-function id(){
-  return crypto
-    .randomBytes(8)
-    .toString('hex');
-}
+/* =========================================================
+   HTTP SERVER
+========================================================= */
 
-function code(){
+const server = http.createServer(async (req, res) => {
 
-  let c;
+  try {
 
-  do{
+    /*
+      Health check voor Render
+    */
+    if (req.method === "GET" && req.url === "/health") {
+      res.writeHead(200, {
+        "Content-Type": "application/json"
+      });
 
-    c=
-      crypto
-        .randomBytes(3)
-        .toString('hex')
-        .toUpperCase();
-
-  }while(
-    rooms.has(c)
-  );
-
-  return c;
-}
-
-function die(){
-
-  return 1+
-    Math.floor(
-      Math.random()*6
-    );
-
-}
-
-function roomFor(
-  codeValue
-){
-
-  let r=
-    rooms.get(
-      codeValue
-    );
-
-  if(!r){
-
-    const c=
-      code();
-
-    r={
-      code:c,
-      players:[],
-      admin:null,
-      current:0,
-      phase:'lobby',
-
-      dice:[
-        1,1,1,1,1
-      ],
-
-      held:[
-        false,
-        false,
-        false,
-        false,
-        false
-      ],
-
-      settled:[
-        false,
-        false,
-        false,
-        false,
-        false
-      ],
-
-      hasRolled:false,
-      mustHold:false,
-      canUndo:false,
-
-      target:null,
-      mode:null,
-
-      banner:
-        'Wacht op spelers...',
-
-      version:1,
-      rollSeq:0,
-
-      log:[],
-      chat:[]
-    };
-
-    rooms.set(
-      c,
-      r
-    );
-
-  }
-
-  return r;
-
-}
-
-function active(r){
-
-  return r.players.filter(
-    p=>p.active
-  ).length;
-
-}
-
-function pub(r,i){
-
-  return {
-
-    room:r.code,
-
-    me:i,
-
-    admin:r.admin,
-
-    current:r.current,
-
-    phase:r.phase,
-
-    dice:r.dice,
-
-    held:r.held,
-
-    settled:r.settled,
-
-    hasRolled:r.hasRolled,
-
-    mustHold:r.mustHold,
-
-    canUndo:r.canUndo,
-
-    target:r.target,
-
-    mode:r.mode,
-
-    banner:r.banner,
-
-    version:r.version,
-
-    rollSeq:r.rollSeq,
-
-    players:
-      r.players.map(
-        p=>({
-          name:p.name,
-          money:p.money,
-          active:p.active
-        })
-      ),
-
-    log:r.log,
-    chat:r.chat
-
-  };
-
-}
-
-function bump(r){
-  r.version++;
-}
-
-function log(r,t){
-
-  r.log.unshift(t);
-
-  if(
-    r.log.length>60
-  ){
-
-    r.log.pop();
-
-  }
-
-}
-
-function next(r){
-
-  for(
-    let n=1;
-    n<=r.players.length;
-    n++
-  ){
-
-    const i=
-      (
-        r.current+n
-      )%
-      r.players.length;
-
-    if(
-      r.players[i]?.active
-    ){
-
-      r.current=i;
+      res.end(JSON.stringify({
+        ok: true
+      }));
 
       return;
-
     }
 
-  }
+    /*
+      Frontend
+    */
+    if (req.method === "GET" && req.url.split("?")[0] === "/") {
 
-}
+      res.writeHead(200, {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-cache"
+      });
 
-function resetTurn(r){
-
-  r.phase='main';
-
-  r.dice=[
-    1,1,1,1,1
-  ];
-
-  r.held=[
-    false,
-    false,
-    false,
-    false,
-    false
-  ];
-
-  r.settled=[
-    false,
-    false,
-    false,
-    false,
-    false
-  ];
-
-  r.hasRolled=false;
-  r.mustHold=false;
-  r.canUndo=false;
-
-  r.target=null;
-  r.mode=null;
-
-}
-
-function finish(r){
-
-  resetTurn(r);
-
-  next(r);
-
-  r.banner=
-    r.players[
-      r.current
-    ]?.name+
-    ' is aan de beurt. Klik op BEGIN WORP.';
-
-  bump(r);
-
-}
-
-function transfer(
-  r,
-  pi,
-  amount,
-  earn
-){
-
-  const me=
-    r.players[pi];
-
-  for(
-    const p of r.players
-  ){
-
-    if(
-      !p.active ||
-      p===me
-    ){
-
-      continue;
-
+      res.end(HTML);
+      return;
     }
 
-    if(earn){
+    /*
+      API state
+    */
+    if (req.method === "GET" && req.url === "/api/state") {
 
-      p.money-=amount;
-      me.money+=amount;
+      const session = getSession(req);
 
-    }else{
+      if (!session) {
+        res.writeHead(401, {
+          "Content-Type": "application/json"
+        });
 
-      p.money+=amount;
-      me.money-=amount;
+        res.end(JSON.stringify({
+          error: "Geen sessie"
+        }));
 
-    }
+        return;
+      }
 
-  }
+      const room = rooms.get(session.roomCode);
 
-}
+      if (!room) {
+        res.writeHead(404, {
+          "Content-Type": "application/json"
+        });
 
-function targetFor(
-  total
-){
+        res.end(JSON.stringify({
+          error: "Kamer bestaat niet meer."
+        }));
 
-  if(
-    total<11
-  ){
+        return;
+      }
 
-    return {
+      const player = getPlayer(room, session);
 
-      target:
-        Math.min(
-          6,
-          11-total
-        ),
+      if (!player) {
+        res.writeHead(401, {
+          "Content-Type": "application/json"
+        });
 
-      mode:'earn'
+        res.end(JSON.stringify({
+          error: "Speler niet gevonden."
+        }));
 
-    };
+        return;
+      }
 
-  }
+      res.writeHead(200, {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-cache"
+      });
 
-  if(
-    total>24
-  ){
-
-    return {
-
-      target:
-        Math.min(
-          6,
-          total-24
-        ),
-
-      mode:'earn'
-
-    };
-
-  }
-
-  return {
-
-    target:
-      Math.min(
-        6,
-        Math.min(
-          total-11,
-          24-total
+      res.end(
+        JSON.stringify(
+          publicState(room, player)
         )
-      ),
-
-    mode:'pay'
-
-  };
-
-}
-
-function full(r){
-
-  return r.dice.every(
-    x=>
-      x===
-      r.dice[0]
-  );
-
-}
-
-function begin(r){
-
-  if(
-    active(r)<2
-  ){
-
-    throw Error(
-      'Minimaal 2 actieve spelers nodig.'
-    );
-
-  }
-
-  r.phase='main';
-
-  r.dice=[
-    die(),
-    die(),
-    die(),
-    die(),
-    die()
-  ];
-
-  r.held=[
-    false,
-    false,
-    false,
-    false,
-    false
-  ];
-
-  r.settled=[
-    false,
-    false,
-    false,
-    false,
-    false
-  ];
-
-  r.hasRolled=true;
-
-  /*
-    Na iedere worp moet minimaal
-    één nieuwe steen worden vastgezet.
-  */
-  r.mustHold=true;
-
-  r.canUndo=false;
-
-  r.rollSeq++;
-
-  r.banner=
-    'Nieuwe worp. Tik minimaal één dobbelsteen aan.';
-
-  log(
-    r,
-    r.players[
-      r.current
-    ].name+
-    ' heeft gegooid.'
-  );
-
-  bump(r);
-
-}
-
-function hold(
-  r,
-  i
-){
-
-  if(
-    !Number.isInteger(i) ||
-    i<0 ||
-    i>4
-  ){
-
-    throw Error(
-      'Ongeldige steen.'
-    );
-
-  }
-
-  if(
-    !r.mustHold
-  ){
-
-    throw Error(
-      'Je hebt al een nieuwe steen vastgezet.'
-    );
-
-  }
-
-  if(
-    r.held[i]
-  ){
-
-    throw Error(
-      'Deze steen staat al vast.'
-    );
-
-  }
-
-  r.held[i]=true;
-
-  r.mustHold=false;
-
-  r.canUndo=true;
-
-  r.banner=
-    'Steen vastgezet. Je mag opnieuw gooien.';
-
-  bump(r);
-
-}
-
-function undo(r){
-
-  let i=-1;
-
-  for(
-    let n=4;
-    n>=0;
-    n--
-  ){
-
-    if(
-      r.held[n]
-    ){
-
-      i=n;
-
-      break;
-
-    }
-
-  }
-
-  if(
-    i<0
-  ){
-
-    throw Error(
-      'Geen vasthouding om terug te draaien.'
-    );
-
-  }
-
-  r.held[i]=false;
-
-  r.mustHold=true;
-
-  r.canUndo=false;
-
-  bump(r);
-
-}
-
-function reroll(r){
-
-  if(
-    r.mustHold
-  ){
-
-    throw Error(
-      'Tik eerst minimaal één nieuwe dobbelsteen aan.'
-    );
-
-  }
-
-  if(
-    r.held.every(Boolean)
-  ){
-
-    throw Error(
-      'Alle dobbelstenen staan vast.'
-    );
-
-  }
-
-  for(
-    let i=0;
-    i<5;
-    i++
-  ){
-
-    if(
-      !r.held[i]
-    ){
-
-      r.dice[i]=die();
-
-    }
-
-  }
-
-  r.mustHold=true;
-  r.canUndo=false;
-  r.rollSeq++;
-
-  r.banner=
-    'Nieuwe worp. Tik minimaal één nieuwe steen aan.';
-
-  bump(r);
-
-}
-
-function resolveRound(
-  r,
-  pi
-){
-
-  let hits=0;
-
-  /*
-    Alleen NIEUWE doelstenen tellen.
-  */
-  for(
-    let i=0;
-    i<5;
-    i++
-  ){
-
-    if(
-      !r.settled[i] &&
-      r.dice[i]===
-      r.target
-    ){
-
-      r.settled[i]=true;
-      r.held[i]=true;
-
-      hits++;
-
-    }
-
-  }
-
-  /*
-    Geen doelsteen = MIS.
-  */
-  if(
-    hits===0
-  ){
-
-    r.banner=
-      '❌ MIS! Geen '+
-      r.target+
-      ' gegooid.';
-
-    log(
-      r,
-      r.players[pi].name+
-      ' heeft geen '+
-      r.target+
-      ' gegooid.'
-    );
-
-    finish(r);
-
-    return {
-      sound:'pay'
-    };
-
-  }
-
-  /*
-    Iedere nieuwe doelsteen
-    betaalt/verdient afzonderlijk.
-  */
-  const amount=
-    r.target*
-    0.5*
-    hits;
-
-  transfer(
-    r,
-    pi,
-    amount,
-    r.mode==='earn'
-  );
-
-  log(
-    r,
-    r.players[pi].name+
-    ' '+
-    (
-      r.mode==='earn'
-        ? 'verdient '
-        : 'betaalt '
-    )+
-    '€'+
-    amount.toFixed(2)+
-    ' met '+
-    hits+
-    ' nieuwe '+
-    r.target+
-    "'en."
-  );
-
-  r.banner=
-    (
-      r.mode==='earn'
-        ? 'VERDIEND: '
-        : 'BETAALD: '
-    )+
-    '€'+
-    amount.toFixed(2)+
-    ' met '+
-    hits+
-    ' nieuwe '+
-    r.target+
-    "'en.";
-
-  /*
-    VOLLE BAK:
-    alle vijf zijn doelstenen.
-
-    Dan opnieuw vijf dobbelstenen.
-  */
-  if(
-    r.settled.every(Boolean)
-  ){
-
-    r.dice=[
-      die(),
-      die(),
-      die(),
-      die(),
-      die()
-    ];
-
-    r.held=[
-      false,
-      false,
-      false,
-      false,
-      false
-    ];
-
-    r.settled=[
-      false,
-      false,
-      false,
-      false,
-      false
-    ];
-
-    r.hasRolled=true;
-    r.mustHold=false;
-    r.canUndo=false;
-
-    r.rollSeq++;
-
-    r.banner+=
-      ' 🎲 VOLLE BAK! Nieuwe 5 dobbelstenen.';
-
-    log(
-      r,
-      'VOLLE BAK → nieuwe 5 dobbelstenen.'
-    );
-
-    bump(r);
-
-    return {
-      sound:
-        r.mode==='earn'
-          ? 'win'
-          : 'pay'
-    };
-
-  }
-
-  r.hasRolled=true;
-  r.mustHold=false;
-  r.canUndo=false;
-
-  bump(r);
-
-  return {
-    sound:
-      r.mode==='earn'
-        ? 'win'
-        : 'pay'
-  };
-
-}
-
-function accept(
-  r,
-  pi
-){
-
-  if(
-    r.mustHold
-  ){
-
-    throw Error(
-      'Je moet eerst minimaal één nieuwe steen vasthouden.'
-    );
-
-  }
-
-  const total=
-    r.dice.reduce(
-      (a,b)=>
-        a+b,
-      0
-    );
-
-  /*
-    11 of 24.
-  */
-  if(
-    total===11 ||
-    total===24
-  ){
-
-    transfer(
-      r,
-      pi,
-      .5,
-      false
-    );
-
-    log(
-      r,
-      r.players[pi].name+
-      ' gooide '+
-      total+
-      ' en betaalt €0,50 aan iedere tegenstander.'
-    );
-
-    r.banner=
-      total+
-      '! €0,50 betalen aan iedere tegenstander.';
-
-    finish(r);
-
-    return {
-      sound:'pay'
-    };
-
-  }
-
-  /*
-    Vijf dezelfde = volle bak.
-  */
-  const t=
-    full(r)
-      ? {
-          target:6,
-          mode:'earn'
-        }
-      : targetFor(total);
-
-  r.phase='round';
-
-  r.target=t.target;
-  r.mode=t.mode;
-
-  r.held=[
-    false,
-    false,
-    false,
-    false,
-    false
-  ];
-
-  r.settled=[
-    false,
-    false,
-    false,
-    false,
-    false
-  ];
-
-  r.mustHold=false;
-  r.canUndo=false;
-
-  r.banner=
-    t.mode==='earn'
-      ? 'VERDIENEN: '+
-        t.target+
-        "'EN"
-      : 'BETALEN: '+
-        t.target+
-        "'EN";
-
-  bump(r);
-
-  /*
-    De doelstenen van de geaccepteerde worp
-    worden direct verwerkt.
-  */
-  return resolveRound(
-    r,
-    pi
-  );
-
-}
-
-function roundRoll(
-  r,
-  pi
-){
-
-  /*
-    Alleen losse dobbelstenen opnieuw gooien.
-  */
-  for(
-    let i=0;
-    i<5;
-    i++
-  ){
-
-    if(
-      !r.settled[i]
-    ){
-
-      r.dice[i]=die();
-
-    }
-
-  }
-
-  r.rollSeq++;
-
-  return resolveRound(
-    r,
-    pi
-  );
-
-}
-
-function action(
-  r,
-  pi,
-  b
-){
-
-  /*
-    Alleen de admin mag START/NIEUW SPEL.
-  */
-  if(
-    r.current!==pi &&
-    b.action!=='newGame'
-  ){
-
-    throw Error(
-      'Het is niet jouw beurt.'
-    );
-
-  }
-
-  if(
-    b.action==='start'
-  ){
-
-    if(
-      pi!==r.admin
-    ){
-
-      throw Error(
-        'Alleen de admin kan starten.'
       );
 
+      return;
     }
 
-    if(
-      r.phase!=='lobby'
-    ){
-
-      throw Error(
-        'Het spel is al gestart.'
-      );
-
-    }
-
-    begin(r);
-
-    return {
-      sound:'roll'
-    };
-
-  }
-
-  if(
-    b.action==='newGame'
-  ){
-
-    if(
-      pi!==r.admin
-    ){
-
-      throw Error(
-        'Alleen de admin kan een nieuw spel starten.'
-      );
-
-    }
-
-    r.phase='lobby';
-
-    r.current=0;
-
-    r.dice=[
-      1,1,1,1,1
-    ];
-
-    r.held=[
-      false,
-      false,
-      false,
-      false,
-      false
-    ];
-
-    r.settled=[
-      false,
-      false,
-      false,
-      false,
-      false
-    ];
-
-    r.hasRolled=false;
-    r.mustHold=false;
-    r.canUndo=false;
-
-    r.target=null;
-    r.mode=null;
-
-    r.banner=
-      'Wacht op spelers...';
-
-    r.players.forEach(
-      p=>{
-        p.money=100;
-      }
-    );
-
-    log(
-      r,
-      'Nieuw spel aangemaakt door de admin.'
-    );
-
-    bump(r);
-
-    return {};
-
-  }
-
-  if(
-    b.action==='hold'
-  ){
-
-    if(
-      r.phase!=='main'
-    ){
-
-      throw Error(
-        'Je kunt nu geen steen vasthouden.'
-      );
-
-    }
-
-    hold(
-      r,
-      Number(b.index)
-    );
-
-    return {
-      sound:'hold'
-    };
-
-  }
-
-  if(
-    b.action==='undo'
-  ){
-
-    undo(r);
-
-    return {
-      sound:'hold'
-    };
-
-  }
-
-  if(
-    b.action==='reroll'
-  ){
-
-    reroll(r);
-
-    return {
-      sound:'roll'
-    };
-
-  }
-
-  if(
-    b.action==='accept'
-  ){
-
-    return accept(
-      r,
-      pi
-    );
-
-  }
-
-  if(
-    b.action==='roundRoll'
-  ){
-
-    return roundRoll(
-      r,
-      pi
-    );
-
-  }
-
-  throw Error(
-    'Onbekende actie'
-  );
-
-}
-
-function session(req){
-
-  const c=
-    req.headers.cookie ||
-    '';
-
-  const m=
-    c.match(
-      /sid=([^;]+)/
-    );
-
-  return m
-    ? sessions.get(m[1])
-    : null;
-
-}
-
-function gp(req){
-
-  const s=
-    session(req);
-
-  if(!s){
-    return null;
-  }
-
-  const r=
-    rooms.get(
-      s.room
-    );
-
-  if(!r){
-    return null;
-  }
-
-  const i=
-    r.players.findIndex(
-      p=>
-        p.id===
-        s.player
-    );
-
-  if(
-    i<0
-  ){
-
-    return null;
-
-  }
-
-  return {
-    r,
-    i
-  };
-
-}
-
-function body(req){
-
-  return new Promise(
-    (resolve,reject)=>{
-
-      let x='';
-
-      req.on(
-        'data',
-        c=>{
-
-          x+=c;
-
-          if(
-            x.length>
-            1000000
-          ){
-
+    /*
+      JSON body uitlezen
+    */
+    async function readBody() {
+      return new Promise((resolve, reject) => {
+
+        let data = "";
+
+        req.on("data", chunk => {
+          data += chunk;
+
+          if (data.length > 1000000) {
+            reject(new Error("Request te groot."));
             req.destroy();
-
           }
+        });
 
-        }
-      );
-
-      req.on(
-        'end',
-        ()=>{
-
-          try{
-
-            resolve(
-              x
-                ? JSON.parse(x)
-                : {}
-            );
-
-          }catch(e){
-
-            resolve({});
-
+        req.on("end", () => {
+          try {
+            resolve(data ? JSON.parse(data) : {});
+          } catch {
+            reject(new Error("Ongeldige JSON."));
           }
+        });
 
-        }
-      );
-
-      req.on(
-        'error',
-        reject
-      );
-
+        req.on("error", reject);
+      });
     }
-  );
 
-}
+    /*
+      KAMER MAKEN
+    */
+    if (req.method === "POST" && req.url === "/api/create") {
 
-function send(
-  res,
-  data,
-  status=200
-){
+      const body = await readBody();
+      const name = cleanName(body.name);
 
-  res.writeHead(
-    status,
-    {
-      'Content-Type':
-        'application/json; charset=utf-8',
+      const room = newRoom(name);
+      const host = room.players[0];
 
-      'Cache-Control':
-        'no-store'
+      const sid = createSession(
+        room.code,
+        host.id
+      );
+
+      setCookie(res, sid);
+
+      res.writeHead(200, {
+        "Content-Type": "application/json"
+      });
+
+      res.end(
+        JSON.stringify(
+          publicState(room, host)
+        )
+      );
+
+      return;
     }
-  );
 
-  res.end(
-    JSON.stringify(data)
-  );
+    /*
+      MEEDOEN MET KAMER
+    */
+    if (req.method === "POST" && req.url === "/api/join") {
 
-}
+      const body = await readBody();
 
-const server=
-  http.createServer(
-    async(
-      req,
-      res
-    )=>{
+      const name = cleanName(body.name);
+      const code = cleanCode(body.code);
 
-      try{
-
-        const u=
-          new URL(
-            req.url,
-            'http://localhost'
-          );
-
-        /*
-          HOME
-        */
-        if(
-          req.method==='GET' &&
-          u.pathname==='/'
-        ){
-
-          res.writeHead(
-            200,
-            {
-              'Content-Type':
-                'text/html; charset=utf-8',
-
-              'Cache-Control':
-                'no-store'
-            }
-          );
-
-          return res.end(
-            HTML
-          );
-
-        }
-
-        /*
-          HEALTH
-        */
-        if(
-          req.method==='GET' &&
-          u.pathname==='/health'
-        ){
-
-          return send(
-            res,
-            {
-              ok:true
-            }
-          );
-
-        }
-
-        /*
-          STATE
-        */
-        if(
-          req.method==='GET' &&
-          u.pathname==='/api/state'
-        ){
-
-          const x=
-            gp(req);
-
-          if(!x){
-
-            return send(
-              res,
-              {
-                error:
-                  'Geen sessie'
-              },
-              401
-            );
-
-          }
-
-          return send(
-            res,
-            pub(
-              x.r,
-              x.i
-            )
-          );
-
-        }
-
-        /*
-          JOIN
-        */
-        if(
-          req.method==='POST' &&
-          u.pathname==='/api/join'
-        ){
-
-          const b=
-            await body(req);
-
-          let roomCode=
-            String(
-              b.room ||
-              ''
-            )
-            .trim()
-            .toUpperCase();
-
-          let r;
-
-          /*
-            Geen room:
-            maak nieuwe privékamer.
-          */
-          if(
-            roomCode
-          ){
-
-            r=
-              rooms.get(
-                roomCode
-              );
-
-            if(!r){
-
-              return send(
-                res,
-                {
-                  error:
-                    'Deze spelkamer bestaat niet.'
-                },
-                404
-              );
-
-            }
-
-          }else{
-
-            r=
-              roomFor('');
-
-          }
-
-          let name=
-            String(
-              b.name ||
-              'Speler'
-            )
-            .trim()
-            .slice(0,20) ||
-            'Speler';
-
-          let p=
-            r.players.find(
-              x=>
-                x.name.toLowerCase()===
-                name.toLowerCase()
-            );
-
-          if(!p){
-
-            if(
-              r.players.length>=4
-            ){
-
-              return send(
-                res,
-                {
-                  error:
-                    'Maximaal 4 spelers in één kamer.'
-                },
-                400
-              );
-
-            }
-
-            p={
-              id:id(),
-              name,
-              money:100,
-              active:true
-            };
-
-            r.players.push(p);
-
-            /*
-              Eerste speler wordt admin.
-            */
-            if(
-              r.admin===null
-            ){
-
-              r.admin=
-                r.players.length-1;
-
-            }
-
-            log(
-              r,
-              name+
-              ' is de kamer binnengekomen.'
-            );
-
-            bump(r);
-
-          }else{
-
-            p.active=true;
-
-          }
-
-          const sid=
-            id();
-
-          sessions.set(
-            sid,
-            {
-              room:r.code,
-              player:p.id
-            }
-          );
-
-          res.setHeader(
-            'Set-Cookie',
-            'sid='+
-            sid+
-            '; Path=/; HttpOnly; SameSite=Lax'
-          );
-
-          return send(
-            res,
-            pub(
-              r,
-              r.players.findIndex(
-                x=>
-                  x.id===
-                  p.id
-              )
-            )
-          );
-
-        }
-
-        /*
-          ACTION
-        */
-        if(
-          req.method==='POST' &&
-          u.pathname==='/api/action'
-        ){
-
-          const x=
-            gp(req);
-
-          if(!x){
-
-            return send(
-              res,
-              {
-                error:
-                  'Geen sessie'
-              },
-              401
-            );
-
-          }
-
-          const b=
-            await body(req);
-
-          try{
-
-            const z=
-              action(
-                x.r,
-                x.i,
-                b
-              );
-
-            return send(
-              res,
-              {
-                ...pub(
-                  x.r,
-                  x.i
-                ),
-                sound:z.sound
-              }
-            );
-
-          }catch(e){
-
-            return send(
-              res,
-              {
-                error:
-                  e.message
-              },
-              400
-            );
-
-          }
-
-        }
-
-        /*
-          CHAT
-        */
-        if(
-          req.method==='POST' &&
-          u.pathname==='/api/chat'
-        ){
-
-          const x=
-            gp(req);
-
-          if(!x){
-
-            return send(
-              res,
-              {
-                error:
-                  'Geen sessie'
-              },
-              401
-            );
-
-          }
-
-          const b=
-            await body(req);
-
-          const text=
-            String(
-              b.text ||
-              ''
-            )
-            .trim()
-            .slice(0,200);
-
-          if(!text){
-
-            return send(
-              res,
-              {
-                error:
-                  'Leeg bericht'
-              },
-              400
-            );
-
-          }
-
-          x.r.chat.push({
-            name:
-              x.r.players[x.i].name,
-            text
-          });
-
-          if(
-            x.r.chat.length>80
-          ){
-
-            x.r.chat.shift();
-
-          }
-
-          bump(x.r);
-
-          return send(
-            res,
-            pub(
-              x.r,
-              x.i
-            )
-          );
-
-        }
-
-        return send(
-          res,
-          {
-            error:
-              'Niet gevonden'
-          },
-          404
-        );
-
-      }catch(e){
-
-        console.error(e);
-
-        return send(
-          res,
-          {
-            error:
-              'Serverfout'
-          },
-          500
-        );
-
+      if (!code || code.length !== 6) {
+        throw new Error("Vul een geldig kamernummer van 6 tekens in.");
       }
 
-    }
-  );
+      const room = rooms.get(code);
 
-server.listen(
-  PORT,
-  ()=>{
-    console.log(
-      'Dobbelen 11/24 draait op poort '+
-      PORT
+      if (!room) {
+        throw new Error("Deze speelkamer bestaat niet.");
+      }
+
+      if (room.started) {
+        throw new Error("Het spel is al gestart.");
+      }
+
+      if (room.players.filter(p => p.active).length >= 4) {
+        throw new Error("Deze kamer zit al vol.");
+      }
+
+      const duplicate = room.players.find(
+        p =>
+          p.active &&
+          p.name.toLowerCase() === name.toLowerCase()
+      );
+
+      if (duplicate) {
+        throw new Error("Deze speelnaam wordt al gebruikt.");
+      }
+
+      const player = {
+        id: crypto.randomUUID(),
+        name,
+        money: 0,
+        active: true
+      };
+
+      room.players.push(player);
+
+      addLog(
+        room,
+        `${name} is de kamer binnengekomen.`
+      );
+
+      bump(room);
+
+      const sid = createSession(
+        room.code,
+        player.id
+      );
+
+      setCookie(res, sid);
+
+      res.writeHead(200, {
+        "Content-Type": "application/json"
+      });
+
+      res.end(
+        JSON.stringify(
+          publicState(room, player)
+        )
+      );
+
+      return;
+    }
+
+    /*
+      GAME ACTION
+    */
+    if (req.method === "POST" && req.url === "/api/action") {
+
+      const session = getSession(req);
+
+      if (!session) {
+        throw new Error("Geen sessie.");
+      }
+
+      const room = rooms.get(session.roomCode);
+
+      if (!room) {
+        throw new Error("Kamer bestaat niet meer.");
+      }
+
+      const player = getPlayer(room, session);
+
+      if (!player) {
+        throw new Error("Speler niet gevonden.");
+      }
+
+      const body = await readBody();
+
+      performAction(
+        room,
+        player,
+        body
+      );
+
+      res.writeHead(200, {
+        "Content-Type": "application/json"
+      });
+
+      res.end(
+        JSON.stringify(
+          publicState(room, player)
+        )
+      );
+
+      return;
+    }
+
+    res.writeHead(404, {
+      "Content-Type": "application/json"
+    });
+
+    res.end(
+      JSON.stringify({
+        error: "Niet gevonden."
+      })
+    );
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.writeHead(400, {
+      "Content-Type": "application/json"
+    });
+
+    res.end(
+      JSON.stringify({
+        error: err.message || "Er ging iets mis."
+      })
     );
   }
-);
+});
+
+server.listen(PORT, () => {
+  console.log(`Dobbelen 11/24 draait op poort ${PORT}`);
+});
