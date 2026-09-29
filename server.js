@@ -1,881 +1,448 @@
-const http = require("http");
-const crypto = require("crypto");
+const http = require('http');
+const crypto = require('crypto');
 
 const PORT = process.env.PORT || 3000;
-
 const rooms = new Map();
 const sessions = new Map();
 
-const HTML = String.raw`<!DOCTYPE html>
+const HTML = String.raw`<!doctype html>
 <html lang="nl">
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-
 <title>Dobbelen 11/24</title>
-
 <style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:#070a13;color:#fff;font-family:Arial,sans-serif}
+body{min-height:100vh;background:radial-gradient(circle at 50% 0,#5c001f 0,#16000c 34%,#070a13 75%)}
+button,input{font:inherit}
+button{border:0;cursor:pointer;font-weight:900;color:#fff}
+button:disabled{opacity:.3;cursor:not-allowed}
+.app{max-width:760px;margin:auto;padding:8px}
 
-*{
-  box-sizing:border-box;
-  -webkit-tap-highlight-color:transparent;
+.hero{text-align:center;padding:15px 10px 12px}
+.logo{font-size:31px;font-weight:1000;color:#ffd84d;text-shadow:0 0 15px #ff304d,0 3px 4px #000}
+.sub{font-weight:800;color:#ffe7b0;margin-top:3px}
+.dots{color:#ffd43d;letter-spacing:5px;font-size:17px;margin:9px}
+
+.panel{
+  background:linear-gradient(145deg,#172236,#0b111e);
+  border:3px solid #d9a935;
+  border-radius:25px;
+  padding:14px;
+  box-shadow:0 0 20px #0008;
+  margin-bottom:10px
 }
 
-html,body{
-  margin:0;
-  padding:0;
-  min-height:100%;
-  background:#061b13;
-  color:#fff;
-  font-family:Arial,Helvetica,sans-serif;
-}
-
-body{
-  min-height:100vh;
-}
-
-button{
-  border:0;
-  cursor:pointer;
-  font-weight:900;
-  color:#fff;
-}
-
-button:disabled{
-  opacity:.32;
-  cursor:not-allowed;
-}
-
-.app{
-  width:min(980px,100%);
-  margin:auto;
-  padding:7px;
-}
-
-/* =========================
-   HEADER
-========================= */
-
-.header{
-  background:linear-gradient(180deg,#381209,#180604);
-  border:3px solid #c79a35;
-  border-radius:18px;
-  padding:10px;
-  box-shadow:0 6px 22px #0009;
-  text-align:center;
-}
-
-.title{
-  color:#ffd75b;
-  font-size:27px;
+.roomCode{
+  font-size:28px;
+  color:#ffd84d;
   font-weight:1000;
-  letter-spacing:1.5px;
-  text-shadow:0 3px 5px #000;
+  letter-spacing:7px;
+  text-align:center
 }
 
-.subtitle{
-  color:#ead8a7;
-  font-size:12px;
-  margin-top:2px;
-}
-
-.turn{
-  margin-top:8px;
-  padding:9px;
-  border-radius:11px;
-  background:#050505c7;
-  font-weight:900;
-  font-size:15px;
-}
-
-/* =========================
-   PLAYERS
-========================= */
+.small{text-align:center;color:#bfc7d6;font-size:13px}
 
 .players{
   display:grid;
-  grid-template-columns:repeat(4,1fr);
-  gap:6px;
-  margin-top:7px;
+  grid-template-columns:repeat(2,1fr);
+  gap:8px;
+  margin-top:12px
 }
 
 .player{
-  background:#10372a;
-  border:2px solid #42735a;
-  border-radius:11px;
-  padding:7px;
+  background:#080f1c;
+  border:1px solid #29364c;
+  border-radius:16px;
+  padding:12px
+}
+
+.player.current{
+  border:3px solid #ffd64e;
+  box-shadow:0 0 15px #ffd64e44
+}
+
+.name{font-size:18px;font-weight:900}
+.money{font-size:25px;font-weight:1000;margin-top:4px}
+.green{color:#71ff80}
+.status{font-size:12px;color:#9effa8;margin-top:3px}
+
+.msg{
+  padding:14px;
   text-align:center;
-}
-
-.player.active{
-  border-color:#ffd45b;
-  box-shadow:0 0 15px #ffd45b66;
-}
-
-.player.off{
-  opacity:.4;
-}
-
-.pname{
-  font-size:12px;
-  font-weight:900;
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
-}
-
-.money{
-  color:#7dff8b;
-  font-weight:1000;
-  margin-top:3px;
-}
-
-/* =========================
-   GAME
-========================= */
-
-.game{
-  margin-top:7px;
-  padding:9px;
-  border-radius:19px;
-  border:3px solid #b88a2f;
-
-  background:
-    radial-gradient(
-      circle at 50% 45%,
-      #17633f 0%,
-      #0b452d 50%,
-      #05281b 100%
-    );
-
-  box-shadow:
-    inset 0 0 45px #0009,
-    0 6px 22px #0009;
-}
-
-.message{
-  min-height:40px;
-  display:flex;
-  justify-content:center;
-  align-items:center;
-  text-align:center;
-  background:#00150dcc;
-  border-radius:12px;
-  padding:8px;
-  font-size:15px;
-  font-weight:900;
-}
-
-/* =========================
-   TARGET
-========================= */
-
-.targetBox{
-  display:none;
-  margin:8px auto;
-  max-width:550px;
-  text-align:center;
-  background:linear-gradient(180deg,#271904,#100a02);
-  border:2px solid #d8a73d;
-  border-radius:14px;
-  padding:9px;
-  box-shadow:0 5px 15px #0009;
-}
-
-.targetBox.show{
-  display:block;
-}
-
-.targetNumber{
-  color:#ffd75a;
-  font-size:27px;
-  font-weight:1000;
-}
-
-.targetText{
-  font-size:12px;
-  font-weight:900;
-}
-
-.actionText{
-  margin-top:4px;
+  background:#080c15;
+  border:2px solid #ffd64e;
+  border-radius:17px;
   font-size:20px;
   font-weight:1000;
+  margin:10px 0
 }
 
-.actionText.earn{
-  color:#75ff88;
+.invite{
+  width:100%;
+  padding:14px;
+  border-radius:14px;
+  background:linear-gradient(#2475d9,#17468e);
+  border:2px solid #83bbff;
+  margin-top:10px
 }
 
-.actionText.pay{
-  color:#ff7474;
+.adminBox{
+  border:1px solid #514827;
+  border-radius:16px;
+  padding:12px;
+  margin-top:12px
 }
 
-/* =========================
-   DICE TABLE
-========================= */
+.adminTitle{
+  font-size:20px;
+  font-weight:1000;
+  color:#ffd84d
+}
 
-.diceArea{
+.row{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap
+}
+
+.btn{
+  padding:13px 16px;
+  border-radius:13px;
+  margin-top:8px
+}
+
+.start{
+  background:linear-gradient(#16b878,#08724d);
+  border:2px solid #5bffbb
+}
+
+.new{
+  background:linear-gradient(#3c5d83,#243c5b);
+  border:2px solid #8eb8e8
+}
+
+.game{
+  background:linear-gradient(145deg,#0c4d32,#062719);
+  border:3px solid #d6a534;
+  border-radius:24px;
+  padding:10px
+}
+
+.turn{
+  background:#07140e;
+  border-radius:14px;
+  padding:12px;
+  text-align:center;
+  font-size:18px;
+  font-weight:1000
+}
+
+.target{
+  display:none;
+  text-align:center;
+  background:#170d04;
+  border:2px solid #e2b13d;
+  border-radius:14px;
+  padding:9px;
+  margin:8px 0
+}
+
+.target.show{display:block}
+
+.targetN{
+  font-size:27px;
+  color:#ffd85c;
+  font-weight:1000
+}
+
+.earn{
+  color:#70ff82;
+  font-size:21px;
+  font-weight:1000
+}
+
+.pay{
+  color:#ff7373;
+  font-size:21px;
+  font-weight:1000
+}
+
+.tray{
   position:relative;
-  min-height:310px;
+  min-height:330px;
   margin-top:9px;
+  border:2px solid #a87d29;
   border-radius:19px;
-  border:2px solid #9f7629;
   overflow:hidden;
-
-  background:
-    radial-gradient(
-      ellipse at center,
-      #196743 0%,
-      #0b492e 52%,
-      #062c1e 100%
-    );
-
-  box-shadow:inset 0 0 40px #0009;
+  background:radial-gradient(circle,#176a43,#0b432c 58%,#05271a);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-wrap:wrap;
+  gap:12px;
+  padding:70px 10px 30px;
+  perspective:1000px
 }
 
-/* =========================
-   DICE CUP
-========================= */
-
-.diceCup{
+.cup{
   position:absolute;
   top:10px;
   left:50%;
   transform:translateX(-50%);
-
   width:110px;
-  height:47px;
-
+  height:48px;
   border-radius:10px 10px 45px 45px;
-
-  background:
-    linear-gradient(
-      160deg,
-      #e4b23f,
-      #9a6814 42%,
-      #4b2d05 100%
-    );
-
-  border:3px solid #ffd76a;
-
-  box-shadow:
-    0 5px 12px #000a,
-    inset 0 4px 5px #ffe79b55;
-
-  z-index:5;
+  background:linear-gradient(160deg,#f1c75a,#80520d);
+  border:3px solid #ffe07a;
+  box-shadow:0 6px 12px #000
 }
 
-.diceCup::before{
+.cup:before{
   content:"";
-
   position:absolute;
-
-  width:78px;
-  height:21px;
-
   left:50%;
   top:6px;
-
   transform:translateX(-50%);
-
+  width:78px;
+  height:20px;
   border-radius:50%;
-
-  background:#160e04;
-
-  border:2px solid #f0c557;
-
-  box-shadow:inset 0 0 12px #000;
+  background:#140d04;
+  border:2px solid #f2c85c
 }
 
-.diceCup::after{
+.cup:after{
   content:"DOBBELBAK";
-
   position:absolute;
-
   left:50%;
   top:31px;
-
   transform:translateX(-50%);
-
-  color:#271800;
   font-size:7px;
-  font-weight:1000;
-  white-space:nowrap;
+  color:#2b1b00;
+  font-weight:1000
 }
-
-/* =========================
-   DICE TRAY
-========================= */
-
-.diceTray{
-  position:relative;
-
-  min-height:310px;
-
-  display:flex;
-  flex-wrap:wrap;
-
-  justify-content:center;
-  align-items:center;
-  align-content:center;
-
-  gap:14px;
-
-  padding:70px 12px 24px;
-
-  perspective:900px;
-}
-
-/* =========================
-   DICE
-========================= */
 
 .die{
   position:relative;
-
-  width:74px;
-  height:74px;
-
-  flex:0 0 74px;
-
+  width:72px;
+  height:72px;
+  flex:0 0 72px;
   border-radius:15px;
-
-  background:
-    linear-gradient(
-      135deg,
-      #ff5544 0%,
-      #d51a14 45%,
-      #760500 100%
-    );
-
-  border:3px solid #ffd65a;
-
+  background:linear-gradient(135deg,#ff5948,#d81713 50%,#760500);
+  border:3px solid #ffd85b;
   box-shadow:
-    inset 5px 5px 9px #ff9a87aa,
-    inset -9px -9px 13px #430000aa,
+    inset 4px 4px 9px #ff9c8c99,
+    inset -9px -9px 12px #43000099,
     0 9px 13px #000a;
-
-  transform-origin:center center;
-
-  user-select:none;
-  touch-action:manipulation;
-
-  transition:
-    box-shadow .15s,
-    filter .15s;
+  transform-origin:center;
+  touch-action:manipulation
 }
 
-.die.selectable{
-  cursor:pointer;
-}
+.die.clickable{cursor:pointer}
 
-.die.selectable:active{
-  filter:brightness(1.25);
-}
-
-.die.held,
-.die.settled{
-  border-color:#fff08a;
-
+.die.held{
   box-shadow:
-    0 0 0 3px #ffcf38aa,
-    0 0 24px #ffd83eaa,
-    inset 5px 5px 9px #ff9a87aa,
-    inset -9px -9px 13px #430000aa,
-    0 9px 13px #000a;
+    0 0 0 3px #ffd43d99,
+    0 0 24px #ffd43d99,
+    inset 4px 4px 9px #ff9c8c99,
+    inset -9px -9px 12px #43000099,
+    0 9px 13px #000a
 }
 
-.die.held::before,
-.die.settled::before{
+.die.held:after{
   content:"VAST";
-
   position:absolute;
-
-  left:50%;
   bottom:-22px;
-
+  left:50%;
   transform:translateX(-50%);
-
-  background:#e0ad36;
-  color:#211500;
-
-  padding:3px 8px;
-
+  background:#e3ad34;
+  color:#261700;
   border-radius:6px;
-
+  padding:3px 8px;
   font-size:8px;
-  font-weight:1000;
-
-  z-index:20;
+  font-weight:1000
 }
-
-/*
-  BELANGRIJK:
-  Geen rotateX/rotateY.
-  Daardoor blijft de dobbelsteen altijd
-  mooi vierkant tijdens de animatie.
-*/
-
-.die.rolling{
-  animation-duration:.85s;
-  animation-fill-mode:both;
-  animation-timing-function:cubic-bezier(.18,.72,.2,1);
-}
-
-.rollA{
-  animation-name:rollA;
-}
-
-.rollB{
-  animation-name:rollB;
-}
-
-.rollC{
-  animation-name:rollC;
-}
-
-.rollD{
-  animation-name:rollD;
-}
-
-.rollE{
-  animation-name:rollE;
-}
-
-/* Elke steen heeft een eigen baan */
-
-@keyframes rollA{
-
-  0%{
-    transform:
-      translate(-120px,-110px)
-      rotate(-20deg)
-      scale(.82);
-  }
-
-  20%{
-    transform:
-      translate(-75px,-35px)
-      rotate(130deg)
-      scale(1.04);
-  }
-
-  45%{
-    transform:
-      translate(-20px,30px)
-      rotate(310deg)
-      scale(1.08);
-  }
-
-  70%{
-    transform:
-      translate(45px,-10px)
-      rotate(510deg)
-      scale(1.04);
-  }
-
-  100%{
-    transform:
-      translate(0,0)
-      rotate(690deg)
-      scale(1);
-  }
-
-}
-
-@keyframes rollB{
-
-  0%{
-    transform:
-      translate(125px,-105px)
-      rotate(35deg)
-      scale(.82);
-  }
-
-  20%{
-    transform:
-      translate(75px,-20px)
-      rotate(-100deg)
-      scale(1.05);
-  }
-
-  45%{
-    transform:
-      translate(20px,45px)
-      rotate(-300deg)
-      scale(1.08);
-  }
-
-  70%{
-    transform:
-      translate(-45px,-15px)
-      rotate(-500deg)
-      scale(1.04);
-  }
-
-  100%{
-    transform:
-      translate(0,0)
-      rotate(-690deg)
-      scale(1);
-  }
-
-}
-
-@keyframes rollC{
-
-  0%{
-    transform:
-      translate(-105px,105px)
-      rotate(-45deg)
-      scale(.82);
-  }
-
-  20%{
-    transform:
-      translate(-30px,65px)
-      rotate(110deg)
-      scale(1.05);
-  }
-
-  45%{
-    transform:
-      translate(55px,20px)
-      rotate(280deg)
-      scale(1.08);
-  }
-
-  70%{
-    transform:
-      translate(20px,-40px)
-      rotate(470deg)
-      scale(1.04);
-  }
-
-  100%{
-    transform:
-      translate(0,0)
-      rotate(650deg)
-      scale(1);
-  }
-
-}
-
-@keyframes rollD{
-
-  0%{
-    transform:
-      translate(110px,105px)
-      rotate(40deg)
-      scale(.82);
-  }
-
-  20%{
-    transform:
-      translate(45px,65px)
-      rotate(-120deg)
-      scale(1.05);
-  }
-
-  45%{
-    transform:
-      translate(-50px,20px)
-      rotate(-300deg)
-      scale(1.08);
-  }
-
-  70%{
-    transform:
-      translate(-20px,-45px)
-      rotate(-500deg)
-      scale(1.04);
-  }
-
-  100%{
-    transform:
-      translate(0,0)
-      rotate(-680deg)
-      scale(1);
-  }
-
-}
-
-@keyframes rollE{
-
-  0%{
-    transform:
-      translate(0,-125px)
-      rotate(-30deg)
-      scale(.82);
-  }
-
-  20%{
-    transform:
-      translate(55px,-55px)
-      rotate(120deg)
-      scale(1.05);
-  }
-
-  45%{
-    transform:
-      translate(-45px,10px)
-      rotate(310deg)
-      scale(1.08);
-  }
-
-  70%{
-    transform:
-      translate(35px,45px)
-      rotate(520deg)
-      scale(1.04);
-  }
-
-  100%{
-    transform:
-      translate(0,0)
-      rotate(700deg)
-      scale(1);
-  }
-
-}
-
-/* =========================
-   PIPS
-========================= */
 
 .pip{
   position:absolute;
-
   width:14px;
   height:14px;
-
   border-radius:50%;
-
   background:#fff;
-
-  box-shadow:
-    inset 2px 2px 2px #aaa,
-    0 1px 2px #550000;
+  box-shadow:inset 2px 2px 2px #aaa,0 1px 2px #500
 }
 
 .p1{left:8px;top:8px}
-.p2{left:30px;top:8px}
+.p2{left:29px;top:8px}
 .p3{right:8px;top:8px}
-.p4{left:8px;top:30px}
-.p5{left:30px;top:30px}
-.p6{right:8px;top:30px}
+.p4{left:8px;top:29px}
+.p5{left:29px;top:29px}
+.p6{right:8px;top:29px}
 .p7{left:8px;bottom:8px}
-.p8{left:30px;bottom:8px}
+.p8{left:29px;bottom:8px}
 .p9{right:8px;bottom:8px}
 
-/* =========================
-   BUTTONS
-========================= */
+.rolling{
+  animation-duration:.8s;
+  animation-fill-mode:both;
+  animation-timing-function:cubic-bezier(.18,.72,.2,1)
+}
+
+.ra{animation-name:ra}
+.rb{animation-name:rb}
+.rc{animation-name:rc}
+.rd{animation-name:rd}
+.re{animation-name:re}
+
+@keyframes ra{
+0%{transform:translate(-130px,-100px) rotate(-20deg) scale(.8)}
+35%{transform:translate(-45px,35px) rotate(180deg) scale(1.08)}
+70%{transform:translate(45px,-20px) rotate(420deg) scale(1.04)}
+100%{transform:translate(0) rotate(700deg) scale(1)}
+}
+
+@keyframes rb{
+0%{transform:translate(130px,-100px) rotate(25deg) scale(.8)}
+35%{transform:translate(50px,35px) rotate(-180deg) scale(1.08)}
+70%{transform:translate(-40px,-15px) rotate(-420deg) scale(1.04)}
+100%{transform:translate(0) rotate(-700deg) scale(1)}
+}
+
+@keyframes rc{
+0%{transform:translate(-110px,100px) rotate(-35deg) scale(.8)}
+35%{transform:translate(55px,40px) rotate(200deg) scale(1.08)}
+70%{transform:translate(-40px,-35px) rotate(430deg) scale(1.04)}
+100%{transform:translate(0) rotate(680deg) scale(1)}
+}
+
+@keyframes rd{
+0%{transform:translate(110px,100px) rotate(35deg) scale(.8)}
+35%{transform:translate(-50px,40px) rotate(-200deg) scale(1.08)}
+70%{transform:translate(40px,-35px) rotate(-440deg) scale(1.04)}
+100%{transform:translate(0) rotate(-680deg) scale(1)}
+}
+
+@keyframes re{
+0%{transform:translate(0,-125px) rotate(-30deg) scale(.8)}
+35%{transform:translate(60px,20px) rotate(170deg) scale(1.08)}
+70%{transform:translate(-45px,45px) rotate(420deg) scale(1.04)}
+100%{transform:translate(0) rotate(710deg) scale(1)}
+}
 
 .controls{
   display:flex;
-  flex-wrap:wrap;
   justify-content:center;
+  flex-wrap:wrap;
   gap:8px;
-  margin-top:8px;
-}
-
-.btn{
-  padding:13px 17px;
-  border-radius:12px;
-  font-size:15px;
-}
-
-.begin{
-  background:linear-gradient(#d93322,#850e06);
-  border:2px solid #ff9a75;
+  margin-top:8px
 }
 
 .roll{
-  background:linear-gradient(#f0a72c,#ad6308);
-  border:2px solid #ffdc70;
+  background:linear-gradient(#f2aa2d,#a95d08);
+  border:2px solid #ffdc70
 }
 
 .accept{
-  background:linear-gradient(#18509f,#08265d);
-  border:2px solid #82b0ff;
+  background:linear-gradient(#2459ad,#09295f);
+  border:2px solid #84b4ff
 }
 
 .undo{
-  background:#555;
+  background:#5a5f68
 }
 
 .roundRoll{
-  width:min(600px,100%);
+  width:100%;
   padding:16px;
-  border-radius:13px;
-  font-size:18px;
-
-  background:linear-gradient(#f0a72c,#a95e07);
-
+  border-radius:14px;
+  background:linear-gradient(#f2aa2d,#a95d08);
   border:3px solid #ffdc70;
-
-  box-shadow:
-    0 0 20px #ffbd3d55;
+  font-size:18px
 }
 
-/* =========================
-   RULES
-========================= */
-
-.rules{
-  margin-top:8px;
+.log{
+  margin-top:10px;
+  background:#03060c;
+  border-radius:13px;
   padding:8px;
-
-  background:#0006;
-
-  border-radius:10px;
-
-  color:#ddd;
-
-  font-size:11px;
-  line-height:1.45;
+  max-height:180px;
+  overflow:auto;
+  font-size:12px
 }
 
-/* =========================
-   CHAT
-========================= */
+.log div{
+  padding:5px;
+  border-bottom:1px solid #ffffff10
+}
 
-.chatBox{
-  margin-top:8px;
-
-  background:#08271d;
-
-  border:1px solid #416c57;
-
-  border-radius:12px;
-
-  overflow:hidden;
+.chat{
+  margin-top:10px;
+  background:#111b2a;
+  border:2px solid #3778c8;
+  border-radius:18px;
+  overflow:hidden
 }
 
 .chatHead{
-  padding:9px;
-  font-weight:900;
-  cursor:pointer;
+  padding:14px;
+  text-align:center;
+  font-size:20px;
+  font-weight:1000;
+  cursor:pointer
 }
 
 .chatBody{
   display:none;
+  padding:10px
+}
+
+.chatBody.open{display:block}
+
+.chatMsgs{
+  height:130px;
+  overflow:auto;
+  background:#050913;
+  border-radius:10px;
   padding:8px;
-}
-
-.chatBody.open{
-  display:block;
-}
-
-.chatMessages{
-  height:120px;
-
-  overflow-y:auto;
-
-  background:#03140e;
-
-  border-radius:8px;
-
-  padding:7px;
-
-  font-size:12px;
-}
-
-.chatLine{
-  margin-bottom:5px;
+  font-size:12px
 }
 
 .chatForm{
   display:flex;
-  gap:5px;
-  margin-top:6px;
+  gap:6px;
+  margin-top:7px
 }
 
 .chatForm input{
   flex:1;
   min-width:0;
-
-  border:0;
-  border-radius:8px;
-
-  padding:10px;
+  padding:11px;
+  border-radius:9px;
+  border:0
 }
 
 .chatForm button{
-  background:#1b6b47;
-  border-radius:8px;
-  padding:10px;
+  padding:11px;
+  border-radius:9px;
+  background:#2264a7
 }
 
-/* =========================
-   LOG
-========================= */
-
-.log{
-  margin-top:8px;
-
-  max-height:140px;
-
-  overflow-y:auto;
-
-  background:#020b07cc;
-
-  border-radius:10px;
-
-  padding:7px;
-
-  font-size:11px;
-}
-
-.log div{
-  padding:3px 0;
-  border-bottom:1px solid #ffffff0d;
-}
-
-/* =========================
-   MOBILE
-========================= */
+.hidden{display:none!important}
 
 @media(max-width:600px){
-
-  .app{
-    padding:5px;
-  }
-
-  .title{
-    font-size:23px;
-  }
-
-  .players{
-    grid-template-columns:repeat(2,1fr);
-  }
-
-  .diceArea{
-    min-height:300px;
-  }
-
-  .diceTray{
-    min-height:300px;
-    gap:10px;
-    padding:70px 7px 24px;
-  }
-
+  .logo{font-size:26px}
+  .players{grid-template-columns:repeat(2,1fr)}
   .die{
-    width:67px;
-    height:67px;
-    flex-basis:67px;
+    width:66px;
+    height:66px;
+    flex-basis:66px
   }
-
-  .p1,.p2,.p3,
-  .p4,.p5,.p6,
-  .p7,.p8,.p9{
-    transform:scale(.85);
+  .tray{
+    min-height:310px;
+    gap:9px
   }
-
 }
-
 </style>
 </head>
 
@@ -883,123 +450,155 @@ button:disabled{
 
 <div class="app">
 
-  <div class="header">
+  <div class="hero">
+    <div class="logo">🎲 DOBBELEN 11/24 🎲</div>
+    <div class="sub">Online • gedeelde tafel</div>
+    <div class="dots">● ● ● ● ● ● ● ● ● ● ●</div>
+  </div>
 
-    <div class="title">
-      🎲 DOBBELEN 11/24 🎲
+  <div class="panel" id="lobby">
+
+    <div class="small">
+      PRIVÉ SPELKAMER
     </div>
 
-    <div class="subtitle">
-      Casino Dice Game
+    <div class="roomCode" id="roomCode">
+      ------
     </div>
 
-    <div id="turn" class="turn">
-      Verbinden...
+    <div class="small" id="roomHint">
+      Stuur de uitnodigingslink naar je medespeler.
+    </div>
+
+    <button
+      class="invite"
+      onclick="copyInvite()">
+      🔗 SPELERS UITNODIGEN / LINK KOPIËREN
+    </button>
+
+    <div id="players" class="players"></div>
+
+    <div id="lobbyMsg" class="msg">
+      Wacht op spelers...
+    </div>
+
+    <div id="adminBox" class="adminBox hidden">
+
+      <div class="adminTitle">
+        👑 ADMIN
+      </div>
+
+      <div class="row">
+
+        <button
+          id="start"
+          class="btn start"
+          onclick="action('start')">
+          ▶️ START SPEL
+        </button>
+
+        <button
+          id="newGame"
+          class="btn new"
+          onclick="action('newGame')">
+          🔄 NIEUW SPEL
+        </button>
+
+      </div>
+
     </div>
 
   </div>
 
-  <div id="players" class="players"></div>
+  <div id="gamePanel" class="panel hidden">
 
-  <div class="game">
+    <div id="turn" class="turn"></div>
 
-    <div id="message" class="message">
-      Welkom!
-    </div>
+    <div id="message" class="msg"></div>
 
-    <div id="targetBox" class="targetBox">
+    <div id="target" class="target">
 
-      <div id="targetNumber" class="targetNumber">
-        -
+      <div
+        id="targetN"
+        class="targetN">
       </div>
 
-      <div class="targetText">
+      <div>
         DOELSTEEN
       </div>
 
-      <div id="actionText" class="actionText"></div>
+      <div id="targetAction"></div>
 
     </div>
 
-    <div class="diceArea">
+    <div class="game">
 
-      <div class="diceCup"></div>
+      <div class="tray">
 
-      <div id="diceTray" class="diceTray"></div>
+        <div class="cup"></div>
 
-    </div>
+        <div
+          id="dice"
+          class="trayInner">
+        </div>
 
-    <div id="mainControls" class="controls">
+      </div>
 
-      <button
-        id="begin"
-        class="btn begin"
-        onclick="act('begin')">
-        🎲 BEGIN WORP
-      </button>
+      <div
+        id="mainControls"
+        class="controls">
 
-      <button
-        id="reroll"
-        class="btn roll"
-        onclick="act('reroll')">
-        🎲 OPNIEUW GOOIEN
-      </button>
+        <button
+          id="reroll"
+          class="btn roll"
+          onclick="action('reroll')">
+          🎲 OPNIEUW GOOIEN
+        </button>
 
-      <button
-        id="accept"
-        class="btn accept"
-        onclick="act('accept')">
-        ✓ AKKOORD
-      </button>
+        <button
+          id="accept"
+          class="btn accept"
+          onclick="action('accept')">
+          ✓ AKKOORD
+        </button>
 
-      <button
-        id="undo"
-        class="btn undo"
-        onclick="act('undo')">
-        ↩ LAATSTE VASTHOUDEN ANNULEREN
-      </button>
+        <button
+          id="undo"
+          class="btn undo"
+          onclick="action('undo')">
+          ↩ VASTZETTING TERUG
+        </button>
 
-    </div>
+      </div>
 
-    <div
-      id="roundControls"
-      class="controls"
-      style="display:none">
+      <div
+        id="roundControls"
+        class="controls hidden">
 
-      <button
-        id="roundRoll"
-        class="roundRoll"
-        onclick="act('roundRoll')">
-        🎲 GOOI VOOR VERDIENEN
-      </button>
+        <button
+          id="roundRoll"
+          class="roundRoll"
+          onclick="action('roundRoll')">
+          🎲 GOOI VOOR VERDIENEN
+        </button>
 
-    </div>
+      </div>
 
-    <div class="rules">
+      <div
+        class="small"
+        style="margin-top:9px">
 
-      <b>Normale worp:</b>
-      na iedere worp moet je minimaal één nieuwe dobbelsteen aantikken
-      om hem vast te houden voordat je opnieuw mag gooien.
-      Vastgezette stenen blijven staan.
+        In de hoofdronde moet vóór iedere nieuwe worp minimaal 1 nieuwe steen vaststaan.
 
-      <br><br>
-
-      <b>Verdienen/betalen:</b>
-      doelstenen worden automatisch vastgezet.
-      Iedere nieuwe doelsteen telt mee.
-
-      <br><br>
-
-      <b>Volle bak:</b>
-      vijf dezelfde doelstenen worden verwerkt.
-      Daarna krijg je automatisch vijf nieuwe dobbelstenen.
-      Dit gaat door zolang er nieuwe doelstenen worden gegooid.
+      </div>
 
     </div>
+
+    <div id="log" class="log"></div>
 
   </div>
 
-  <div class="chatBox">
+  <div class="chat">
 
     <div
       class="chatHead"
@@ -1007,11 +606,13 @@ button:disabled{
       💬 CHAT
     </div>
 
-    <div id="chatBody" class="chatBody">
+    <div
+      id="chatBody"
+      class="chatBody">
 
       <div
-        id="chatMessages"
-        class="chatMessages">
+        id="chatMsgs"
+        class="chatMsgs">
       </div>
 
       <div class="chatForm">
@@ -1021,7 +622,8 @@ button:disabled{
           maxlength="200"
           placeholder="Typ een bericht...">
 
-        <button onclick="sendChat()">
+        <button
+          onclick="sendChat()">
           VERSTUUR
         </button>
 
@@ -1031,118 +633,20 @@ button:disabled{
 
   </div>
 
-  <div id="log" class="log"></div>
-
 </div>
 
 <script>
 
 let state=null;
+let lastRoll=-1;
 let chatOpen=false;
 
-const audio={
-  ctx:null
-};
-
-function sound(type){
-
-  try{
-
-    if(!audio.ctx){
-
-      audio.ctx=
-        new(
-          window.AudioContext ||
-          window.webkitAudioContext
-        )();
-
-    }
-
-    if(
-      audio.ctx.state===
-      "suspended"
-    ){
-      audio.ctx.resume();
-    }
-
-    const ctx=audio.ctx;
-
-    const osc=
-      ctx.createOscillator();
-
-    const gain=
-      ctx.createGain();
-
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-
-    let frequency=400;
-    let duration=.1;
-
-    if(type==="roll"){
-      frequency=120;
-      duration=.16;
-      osc.type="triangle";
-    }
-
-    if(type==="hold"){
-      frequency=520;
-      duration=.12;
-    }
-
-    if(type==="accept"){
-      frequency=700;
-      duration=.18;
-    }
-
-    if(type==="win"){
-      frequency=900;
-      duration=.22;
-    }
-
-    if(type==="pay"){
-      frequency=170;
-      duration=.2;
-    }
-
-    osc.frequency.value=
-      frequency;
-
-    gain.gain.setValueAtTime(
-      .001,
-      ctx.currentTime
-    );
-
-    gain.gain.exponentialRampToValueAtTime(
-      .15,
-      ctx.currentTime+.01
-    );
-
-    gain.gain.exponentialRampToValueAtTime(
-      .001,
-      ctx.currentTime+duration
-    );
-
-    osc.start();
-
-    osc.stop(
-      ctx.currentTime+
-      duration+
-      .02
-    );
-
-  }catch(e){}
-
-}
-
-function esc(value){
-
-  return String(value ?? "")
-    .replace(/&/g,"&amp;")
-    .replace(/</g,"&lt;")
-    .replace(/>/g,"&gt;")
-    .replace(/"/g,"&quot;");
-
+function esc(v){
+  return String(v??'')
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
 }
 
 function api(url,body){
@@ -1150,159 +654,100 @@ function api(url,body){
   return fetch(
     url,
     {
-      method:
-        body
-          ? "POST"
-          : "GET",
+      method:body?'POST':'GET',
 
       headers:
         body
-          ? {
-              "Content-Type":
-                "application/json"
-            }
+          ? {'Content-Type':'application/json'}
           : {},
 
       body:
         body
           ? JSON.stringify(body)
           : undefined
+
     }
   ).then(
-    response=>
-      response.json()
-  );
+    r=>r.json()
+  )
 
 }
 
-/* =========================
-   PIPS
-========================= */
+function sound(type){
 
-function pipPositions(value){
+  try{
 
-  const map={
+    const C=
+      window.AudioContext ||
+      window.webkitAudioContext;
 
-    1:["p5"],
+    if(!window.ac){
+      window.ac=new C()
+    }
 
-    2:["p1","p9"],
+    const c=window.ac;
 
-    3:["p1","p5","p9"],
+    c.resume();
 
-    4:[
-      "p1",
-      "p3",
-      "p7",
-      "p9"
-    ],
+    const o=
+      c.createOscillator();
 
-    5:[
-      "p1",
-      "p3",
-      "p5",
-      "p7",
-      "p9"
-    ],
+    const g=
+      c.createGain();
 
-    6:[
-      "p1",
-      "p3",
-      "p4",
-      "p6",
-      "p7",
-      "p9"
-    ]
+    o.connect(g);
+    g.connect(c.destination);
 
-  };
+    o.frequency.value=
+      type==='roll'
+        ? 130
+        : type==='hold'
+          ? 520
+          : type==='win'
+            ? 900
+            : type==='pay'
+              ? 170
+              : 650;
 
-  return map[value] || [];
+    g.gain.setValueAtTime(
+      .001,
+      c.currentTime
+    );
+
+    g.gain.exponentialRampToValueAtTime(
+      .13,
+      c.currentTime+.01
+    );
+
+    g.gain.exponentialRampToValueAtTime(
+      .001,
+      c.currentTime+.18
+    );
+
+    o.start();
+
+    o.stop(
+      c.currentTime+.2
+    );
+
+  }catch(e){}
 
 }
 
-/* =========================
-   DICE
-========================= */
+function pips(v){
 
-function createDie(
-  value,
-  index,
-  rolling,
-  held,
-  settled,
-  selectable
-){
-
-  const die=
-    document.createElement(
-      "div"
-    );
-
-  let classes="die";
-
-  if(rolling){
-
-    classes+=" rolling ";
-
-    classes+=
-      [
-        "rollA",
-        "rollB",
-        "rollC",
-        "rollD",
-        "rollE"
-      ][index%5];
-
-  }
-
-  if(held){
-    classes+=" held";
-  }
-
-  if(settled){
-    classes+=" settled";
-  }
-
-  if(selectable){
-    classes+=" selectable";
-  }
-
-  die.className=classes;
-
-  pipPositions(value)
-    .forEach(
-      position=>{
-
-        const pip=
-          document.createElement(
-            "span"
-          );
-
-        pip.className=
-          "pip "+position;
-
-        die.appendChild(pip);
-
-      }
-    );
-
-  if(selectable){
-
-    die.addEventListener(
-      "click",
-      ()=>{
-        holdDie(index);
-      }
-    );
-
-  }
-
-  return die;
+  return (
+    {
+      1:['p5'],
+      2:['p1','p9'],
+      3:['p1','p5','p9'],
+      4:['p1','p3','p7','p9'],
+      5:['p1','p3','p5','p7','p9'],
+      6:['p1','p3','p4','p6','p7','p9']
+    }
+  )[v]||[];
 
 }
-
-/* =========================
-   RENDER DICE
-========================= */
 
 function renderDice(){
 
@@ -1310,19 +755,16 @@ function renderDice(){
     return;
   }
 
-  const tray=
+  const d=
     document.getElementById(
-      "diceTray"
+      'dice'
     );
+
+  d.innerHTML='';
 
   const animate=
     state.rollSeq>
-    (
-      state.lastRenderedRollSeq ??
-      -1
-    );
-
-  tray.innerHTML="";
+    lastRoll;
 
   for(
     let i=0;
@@ -1330,482 +772,368 @@ function renderDice(){
     i++
   ){
 
-    const held=
-      !!state.held[i];
+    const x=
+      document.createElement(
+        'div'
+      );
 
-    const settled=
-      !!state.settled[i];
+    let c='die';
 
-    const rolling=
+    if(
+      state.held[i]
+    ){
+
+      c+=' held';
+
+    }
+
+    if(
       animate &&
-      !held &&
-      !settled;
+      !state.held[i] &&
+      !state.settled[i]
+    ){
+
+      c+=' rolling '+
+        [
+          'ra',
+          'rb',
+          'rc',
+          'rd',
+          're'
+        ][i];
+
+    }
 
     const selectable=
-      state.phase==="main" &&
-      state.me===
-        state.current &&
-      state.hasRolled &&
-      !held &&
-      state.mustHold;
+      state.phase==='main' &&
+      state.me===state.current &&
+      state.mustHold &&
+      !state.held[i];
 
-    tray.appendChild(
-      createDie(
-        state.dice[i],
-        i,
-        rolling,
-        held,
-        settled,
-        selectable
-      )
+    if(selectable){
+      c+=' clickable';
+    }
+
+    x.className=c;
+
+    pips(
+      state.dice[i]
+    ).forEach(
+      p=>{
+
+        const s=
+          document.createElement(
+            'span'
+          );
+
+        s.className=
+          'pip '+p;
+
+        x.appendChild(s);
+
+      }
     );
+
+    if(selectable){
+
+      x.onclick=
+        ()=>action(
+          'hold',
+          {
+            index:i
+          }
+        );
+
+    }
+
+    d.appendChild(x);
 
   }
 
-  state.lastRenderedRollSeq=
+  lastRoll=
     state.rollSeq;
 
 }
 
-/* =========================
-   PLAYERS
-========================= */
-
-function renderPlayers(){
-
-  const el=
-    document.getElementById(
-      "players"
-    );
-
-  el.innerHTML="";
+function render(){
 
   if(!state){
     return;
   }
 
-  state.players.forEach(
-    (p,index)=>{
+  document.getElementById(
+    'roomCode'
+  ).textContent=
+    state.room;
 
-      const div=
-        document.createElement(
-          "div"
-        );
-
-      div.className=
-        "player "+
-        (
-          index===
-          state.current
-            ? "active "
-            : ""
-        )+
-        (
-          !p.active
-            ? "off"
-            : ""
-        );
-
-      div.innerHTML=
-        '<div class="pname">'+
-        esc(p.name)+
-        '</div>'+
-        '<div class="money">€ '+
-        Number(p.money)
-          .toFixed(2)+
-        '</div>';
-
-      el.appendChild(div);
-
-    }
-  );
-
-}
-
-/* =========================
-   CHAT
-========================= */
-
-function renderChat(){
-
-  const el=
-    document.getElementById(
-      "chatMessages"
-    );
-
-  if(!state){
-
-    el.innerHTML="";
-
-    return;
-
-  }
-
-  el.innerHTML=
-    state.chat
+  document.getElementById(
+    'players'
+  ).innerHTML=
+    state.players
       .map(
-        item=>
-          '<div class="chatLine">'+
-          '<b>'+
-          esc(item.name)+
-          ':</b> '+
-          esc(item.text)+
+        (p,i)=>
+          '<div class="player '+
+          (
+            i===state.current
+              ? 'current'
+              : ''
+          )+
+          '">'+
+
+          '<div class="name">'+
+          (
+            i===state.admin
+              ? '👑 '
+              : ''
+          )+
+          esc(p.name)+
+          '</div>'+
+
+          '<div class="money">€'+
+          Number(p.money)
+            .toFixed(2)
+            .replace('.',',')+
+          '</div>'+
+
+          '<div class="status">🟢 Actief</div>'+
+
           '</div>'
       )
-      .join("");
-
-  el.scrollTop=
-    el.scrollHeight;
-
-}
-
-/* =========================
-   LOG
-========================= */
-
-function renderLog(){
-
-  const el=
-    document.getElementById(
-      "log"
-    );
-
-  if(!state){
-
-    el.innerHTML="";
-
-    return;
-
-  }
-
-  el.innerHTML=
-    state.log
-      .map(
-        item=>
-          "<div>"+
-          esc(item)+
-          "</div>"
-      )
-      .join("");
-
-}
-
-/* =========================
-   APPLY
-========================= */
-
-function apply(){
-
-  if(!state){
-    return;
-  }
-
-  const mine=
-    state.me===
-    state.current;
-
-  const main=
-    state.phase==="main";
-
-  const round=
-    state.phase==="round";
-
-  const currentPlayer=
-    state.players[
-      state.current
-    ];
+      .join('');
 
   document.getElementById(
-    "turn"
+    'lobbyMsg'
   ).textContent=
-    currentPlayer
-      ? "🎯 "+
-        currentPlayer.name+
-        " is aan de beurt"
-      : "";
+    state.phase==='lobby'
+      ? 'WACHT OP SPELERS / START DOOR ADMIN.'
+      : '';
 
   document.getElementById(
-    "message"
-  ).textContent=
-    state.banner || "";
+    'adminBox'
+  ).classList.toggle(
+    'hidden',
+    state.me!==state.admin
+  );
 
-  const targetBox=
+  document.getElementById(
+    'start'
+  ).disabled=
+    state.me!==state.admin ||
+    state.players.filter(
+      p=>p.active
+    ).length<2 ||
+    state.phase!=='lobby';
+
+  document.getElementById(
+    'newGame'
+  ).disabled=
+    state.me!==state.admin;
+
+  const gp=
     document.getElementById(
-      "targetBox"
+      'gamePanel'
     );
 
-  const targetNumber=
+  gp.classList.toggle(
+    'hidden',
+    state.phase==='lobby'
+  );
+
+  if(
+    state.phase!=='lobby'
+  ){
+
     document.getElementById(
-      "targetNumber"
-    );
+      'turn'
+    ).textContent=
+      state.players[
+        state.current
+      ]?.name+
+      ' is aan de beurt.';
 
-  const actionText=
     document.getElementById(
-      "actionText"
+      'message'
+    ).textContent=
+      state.banner;
+
+    document.getElementById(
+      'reroll'
+    ).disabled=
+      state.me!==state.current ||
+      state.phase!=='main' ||
+      !state.hasRolled ||
+      state.mustHold ||
+      state.held.every(Boolean);
+
+    document.getElementById(
+      'accept'
+    ).disabled=
+      state.me!==state.current ||
+      state.phase!=='main' ||
+      !state.hasRolled ||
+      state.mustHold;
+
+    document.getElementById(
+      'undo'
+    ).disabled=
+      state.me!==state.current ||
+      !state.canUndo;
+
+    const t=
+      document.getElementById(
+        'target'
+      );
+
+    t.classList.toggle(
+      'show',
+      state.phase==='round'
     );
-
-  if(round){
-
-    targetBox.classList.add(
-      "show"
-    );
-
-    targetNumber.textContent=
-      state.target+
-      " – DOELSTEEN";
 
     if(
-      state.mode===
-      "earn"
+      state.phase==='round'
     ){
 
-      actionText.textContent=
-        "VERDIENEN: "+
+      document.getElementById(
+        'targetN'
+      ).textContent=
+        state.target+
+        ' – DOELSTEEN';
+
+      const a=
+        document.getElementById(
+          'targetAction'
+        );
+
+      a.textContent=
+        (
+          state.mode==='earn'
+            ? 'VERDIENEN: '
+            : 'BETALEN: '
+        )+
         state.target+
         "'EN";
 
-      actionText.className=
-        "actionText earn";
+      a.className=
+        state.mode==='earn'
+          ? 'earn'
+          : 'pay';
+
+      document.getElementById(
+        'roundControls'
+      ).classList.remove(
+        'hidden'
+      );
+
+      document.getElementById(
+        'roundRoll'
+      ).textContent=
+        state.mode==='earn'
+          ? '🎲 GOOI VOOR VERDIENEN'
+          : '🎲 GOOI VOOR BETALEN';
+
+      document.getElementById(
+        'roundRoll'
+      ).disabled=
+        state.me!==state.current;
 
     }else{
 
-      actionText.textContent=
-        "BETALEN: "+
-        state.target+
-        "'EN";
-
-      actionText.className=
-        "actionText pay";
+      document.getElementById(
+        'roundControls'
+      ).classList.add(
+        'hidden'
+      );
 
     }
 
-  }else{
+    renderDice();
 
-    targetBox.classList.remove(
-      "show"
-    );
-
-  }
-
-  document.getElementById(
-    "mainControls"
-  ).style.display=
-    main
-      ? "flex"
-      : "none";
-
-  document.getElementById(
-    "roundControls"
-  ).style.display=
-    round
-      ? "flex"
-      : "none";
-
-  const beginButton=
     document.getElementById(
-      "begin"
-    );
-
-  /*
-    MINIMAAL 2 SPELERS
-  */
-  const playerCount=
-    state.players.filter(
-      p=>p.active
-    ).length;
-
-  beginButton.disabled=
-    !mine ||
-    !main ||
-    state.hasRolled ||
-    playerCount<2;
-
-  if(
-    playerCount<2 &&
-    mine &&
-    main &&
-    !state.hasRolled
-  ){
-
-    beginButton.textContent=
-      "👥 WACHT OP SPELER";
-
-  }else{
-
-    beginButton.textContent=
-      "🎲 BEGIN WORP";
+      'log'
+    ).innerHTML=
+      state.log
+        .map(
+          x=>
+            '<div>'+
+            esc(x)+
+            '</div>'
+        )
+        .join('');
 
   }
 
   document.getElementById(
-    "reroll"
-  ).disabled=
-    !mine ||
-    !main ||
-    !state.hasRolled ||
-    state.mustHold ||
-    state.held.every(Boolean);
+    'chatMsgs'
+  ).innerHTML=
+    state.chat
+      .map(
+        x=>
+          '<div><b>'+
+          esc(x.name)+
+          ':</b> '+
+          esc(x.text)+
+          '</div>'
+      )
+      .join('');
 
   document.getElementById(
-    "accept"
-  ).disabled=
-    !mine ||
-    !main ||
-    !state.hasRolled ||
-    state.mustHold;
-
-  document.getElementById(
-    "undo"
-  ).disabled=
-    !mine ||
-    !main ||
-    !state.canUndo;
-
-  const roundButton=
-    document.getElementById(
-      "roundRoll"
-    );
-
-  if(round){
-
-    roundButton.textContent=
-      state.mode===
-      "earn"
-        ? "🎲 GOOI VOOR VERDIENEN"
-        : "🎲 GOOI VOOR BETALEN";
-
-    roundButton.disabled=
-      !mine;
-
-  }
-
-  renderPlayers();
-  renderDice();
-  renderChat();
-  renderLog();
+    'chatMsgs'
+  ).scrollTop=
+    999999;
 
 }
 
-/* =========================
-   ACTION
-========================= */
-
-async function act(action){
+async function action(
+  a,
+  extra={}
+){
 
   if(
-    action==="begin" ||
-    action==="reroll" ||
-    action==="roundRoll"
+    a==='start' ||
+    a==='reroll' ||
+    a==='roundRoll'
   ){
 
-    sound("roll");
+    sound('roll');
 
   }
 
   try{
 
-    const result=
+    const r=
       await api(
-        "/api/action",
+        '/api/action',
         {
-          action
+          action:a,
+          ...extra
         }
       );
 
-    if(result.error){
+    if(r.error){
 
-      alert(
-        result.error
-      );
+      alert(r.error);
 
       return;
 
     }
 
-    state=result;
+    state=r;
 
-    if(result.sound){
-      sound(
-        result.sound
-      );
+    if(r.sound){
+      sound(r.sound);
     }
 
-    apply();
+    render();
 
-  }catch(error){
+  }catch(e){
 
     alert(
-      "Verbinding mislukt."
+      'Verbinding mislukt.'
     );
 
   }
 
 }
-
-/* =========================
-   HOLD DIE
-========================= */
-
-async function holdDie(index){
-
-  if(!state){
-    return;
-  }
-
-  if(
-    state.phase!=="main" ||
-    state.me!==state.current ||
-    !state.mustHold
-  ){
-
-    return;
-
-  }
-
-  if(state.held[index]){
-    return;
-  }
-
-  sound("hold");
-
-  try{
-
-    const result=
-      await api(
-        "/api/action",
-        {
-          action:"holdDie",
-          index
-        }
-      );
-
-    if(result.error){
-
-      alert(
-        result.error
-      );
-
-      return;
-
-    }
-
-    state=result;
-
-    apply();
-
-  }catch(error){
-
-    alert(
-      "Verbinding mislukt."
-    );
-
-  }
-
-}
-
-/* =========================
-   CHAT
-========================= */
 
 function toggleChat(){
 
@@ -1814,10 +1142,10 @@ function toggleChat(){
 
   document
     .getElementById(
-      "chatBody"
+      'chatBody'
     )
     .classList.toggle(
-      "open",
+      'open',
       chatOpen
     );
 
@@ -1825,59 +1153,183 @@ function toggleChat(){
 
 async function sendChat(){
 
-  const input=
+  const i=
     document.getElementById(
-      "chatInput"
+      'chatInput'
     );
 
   const text=
-    input.value.trim();
+    i.value.trim();
 
   if(!text){
     return;
   }
 
-  input.value="";
+  i.value='';
+
+  const r=
+    await api(
+      '/api/chat',
+      {
+        text
+      }
+    );
+
+  if(!r.error){
+
+    state=r;
+
+    render();
+
+  }
+
+}
+
+async function copyInvite(){
+
+  const url=
+    location.origin+
+    '/?room='+
+    encodeURIComponent(
+      state.room
+    );
 
   try{
 
-    const result=
-      await api(
-        "/api/chat",
-        {
-          text
+    await navigator.clipboard.writeText(
+      url
+    );
+
+    alert(
+      'Uitnodigingslink gekopieerd:\n\n'+
+      url
+    );
+
+  }catch(e){
+
+    prompt(
+      'Kopieer deze link:',
+      url
+    );
+
+  }
+
+}
+
+async function boot(){
+
+  const qs=
+    new URLSearchParams(
+      location.search
+    );
+
+  const room=
+    qs.get('room') ||
+    '';
+
+  let name=
+    localStorage.getItem(
+      'dice_name'
+    );
+
+  if(!name){
+
+    name=
+      prompt(
+        'Welke naam wil je gebruiken?'
+      ) ||
+      'Speler';
+
+    name=
+      name
+        .trim()
+        .slice(0,20) ||
+      'Speler';
+
+    localStorage.setItem(
+      'dice_name',
+      name
+    );
+
+  }
+
+  const r=
+    await api(
+      '/api/join',
+      {
+        room,
+        name
+      }
+    );
+
+  if(r.error){
+
+    alert(r.error);
+
+    return;
+
+  }
+
+  state=r;
+
+  if(!room){
+
+    history.replaceState(
+      {},
+      '',
+      '/?room='+
+      encodeURIComponent(
+        r.room
+      )
+    );
+
+  }
+
+  render();
+
+  setInterval(
+    async()=>{
+
+      try{
+
+        const s=
+          await api(
+            '/api/state'
+          );
+
+        if(
+          !s.error &&
+          (
+            !state ||
+            s.version!==
+            state.version
+          )
+        ){
+
+          state=s;
+
+          render();
+
         }
-      );
 
-    if(result.error){
+      }catch(e){}
 
-      alert(
-        result.error
-      );
-
-      return;
-
-    }
-
-    state=result;
-
-    renderChat();
-
-  }catch(error){}
+    },
+    600
+  );
 
 }
 
 document
   .getElementById(
-    "chatInput"
+    'chatInput'
   )
   .addEventListener(
-    "keydown",
-    event=>{
+    'keydown',
+    e=>{
 
       if(
-        event.key===
-        "Enter"
+        e.key==='Enter'
       ){
 
         sendChat();
@@ -1887,128 +1339,6 @@ document
     }
   );
 
-/* =========================
-   REFRESH
-========================= */
-
-async function refresh(){
-
-  try{
-
-    const result=
-      await api(
-        "/api/state"
-      );
-
-    if(result.error){
-      return;
-    }
-
-    if(
-      !state ||
-      result.version!==
-      state.version
-    ){
-
-      state=result;
-
-      apply();
-
-    }
-
-  }catch(error){}
-
-}
-
-/* =========================
-   BOOT
-========================= */
-
-async function boot(){
-
-  let name=
-    localStorage.getItem(
-      "dice_name"
-    );
-
-  if(!name){
-
-    name=
-      prompt(
-        "Welke naam wil je gebruiken?"
-      );
-
-    if(!name){
-      name="Speler";
-    }
-
-    name=
-      name
-        .trim()
-        .slice(0,20);
-
-    if(!name){
-      name="Speler";
-    }
-
-    localStorage.setItem(
-      "dice_name",
-      name
-    );
-
-  }
-
-  const params=
-    new URLSearchParams(
-      location.search
-    );
-
-  const room=
-    params.get("room") ||
-    "casino";
-
-  try{
-
-    const result=
-      await api(
-        "/api/join",
-        {
-          name,
-          room
-        }
-      );
-
-    if(result.error){
-
-      document.getElementById(
-        "message"
-      ).textContent=
-        result.error;
-
-      return;
-
-    }
-
-    state=result;
-
-    apply();
-
-    setInterval(
-      refresh,
-      600
-    );
-
-  }catch(error){
-
-    document.getElementById(
-      "message"
-    ).textContent=
-      "Kan geen verbinding maken.";
-
-  }
-
-}
-
 boot();
 
 </script>
@@ -2016,67 +1346,1172 @@ boot();
 </body>
 </html>`;
 
-/* =========================================================
-   SERVER
-========================================================= */
+function id(){
+  return crypto
+    .randomBytes(8)
+    .toString('hex');
+}
 
-function json(res,data,status=200){
+function code(){
 
-  const body=
-    JSON.stringify(data);
+  let c;
 
-  res.writeHead(
-    status,
-    {
-      "Content-Type":
-        "application/json; charset=utf-8",
+  do{
 
-      "Cache-Control":
-        "no-store"
-    }
+    c=
+      crypto
+        .randomBytes(3)
+        .toString('hex')
+        .toUpperCase();
+
+  }while(
+    rooms.has(c)
   );
 
-  res.end(body);
+  return c;
+}
+
+function die(){
+
+  return 1+
+    Math.floor(
+      Math.random()*6
+    );
 
 }
 
-function sendHtml(res){
+function roomFor(
+  codeValue
+){
 
-  res.writeHead(
-    200,
-    {
-      "Content-Type":
-        "text/html; charset=utf-8",
+  let r=
+    rooms.get(
+      codeValue
+    );
 
-      "Cache-Control":
-        "no-store"
-    }
-  );
+  if(!r){
 
-  res.end(HTML);
+    const c=
+      code();
+
+    r={
+      code:c,
+      players:[],
+      admin:null,
+      current:0,
+      phase:'lobby',
+
+      dice:[
+        1,1,1,1,1
+      ],
+
+      held:[
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+
+      settled:[
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+
+      hasRolled:false,
+      mustHold:false,
+      canUndo:false,
+
+      target:null,
+      mode:null,
+
+      banner:
+        'Wacht op spelers...',
+
+      version:1,
+      rollSeq:0,
+
+      log:[],
+      chat:[]
+    };
+
+    rooms.set(
+      c,
+      r
+    );
+
+  }
+
+  return r;
 
 }
 
-function readBody(req){
+function active(r){
+
+  return r.players.filter(
+    p=>p.active
+  ).length;
+
+}
+
+function pub(r,i){
+
+  return {
+
+    room:r.code,
+
+    me:i,
+
+    admin:r.admin,
+
+    current:r.current,
+
+    phase:r.phase,
+
+    dice:r.dice,
+
+    held:r.held,
+
+    settled:r.settled,
+
+    hasRolled:r.hasRolled,
+
+    mustHold:r.mustHold,
+
+    canUndo:r.canUndo,
+
+    target:r.target,
+
+    mode:r.mode,
+
+    banner:r.banner,
+
+    version:r.version,
+
+    rollSeq:r.rollSeq,
+
+    players:
+      r.players.map(
+        p=>({
+          name:p.name,
+          money:p.money,
+          active:p.active
+        })
+      ),
+
+    log:r.log,
+    chat:r.chat
+
+  };
+
+}
+
+function bump(r){
+  r.version++;
+}
+
+function log(r,t){
+
+  r.log.unshift(t);
+
+  if(
+    r.log.length>60
+  ){
+
+    r.log.pop();
+
+  }
+
+}
+
+function next(r){
+
+  for(
+    let n=1;
+    n<=r.players.length;
+    n++
+  ){
+
+    const i=
+      (
+        r.current+n
+      )%
+      r.players.length;
+
+    if(
+      r.players[i]?.active
+    ){
+
+      r.current=i;
+
+      return;
+
+    }
+
+  }
+
+}
+
+function resetTurn(r){
+
+  r.phase='main';
+
+  r.dice=[
+    1,1,1,1,1
+  ];
+
+  r.held=[
+    false,
+    false,
+    false,
+    false,
+    false
+  ];
+
+  r.settled=[
+    false,
+    false,
+    false,
+    false,
+    false
+  ];
+
+  r.hasRolled=false;
+  r.mustHold=false;
+  r.canUndo=false;
+
+  r.target=null;
+  r.mode=null;
+
+}
+
+function finish(r){
+
+  resetTurn(r);
+
+  next(r);
+
+  r.banner=
+    r.players[
+      r.current
+    ]?.name+
+    ' is aan de beurt. Klik op BEGIN WORP.';
+
+  bump(r);
+
+}
+
+function transfer(
+  r,
+  pi,
+  amount,
+  earn
+){
+
+  const me=
+    r.players[pi];
+
+  for(
+    const p of r.players
+  ){
+
+    if(
+      !p.active ||
+      p===me
+    ){
+
+      continue;
+
+    }
+
+    if(earn){
+
+      p.money-=amount;
+      me.money+=amount;
+
+    }else{
+
+      p.money+=amount;
+      me.money-=amount;
+
+    }
+
+  }
+
+}
+
+function targetFor(
+  total
+){
+
+  if(
+    total<11
+  ){
+
+    return {
+
+      target:
+        Math.min(
+          6,
+          11-total
+        ),
+
+      mode:'earn'
+
+    };
+
+  }
+
+  if(
+    total>24
+  ){
+
+    return {
+
+      target:
+        Math.min(
+          6,
+          total-24
+        ),
+
+      mode:'earn'
+
+    };
+
+  }
+
+  return {
+
+    target:
+      Math.min(
+        6,
+        Math.min(
+          total-11,
+          24-total
+        )
+      ),
+
+    mode:'pay'
+
+  };
+
+}
+
+function full(r){
+
+  return r.dice.every(
+    x=>
+      x===
+      r.dice[0]
+  );
+
+}
+
+function begin(r){
+
+  if(
+    active(r)<2
+  ){
+
+    throw Error(
+      'Minimaal 2 actieve spelers nodig.'
+    );
+
+  }
+
+  r.phase='main';
+
+  r.dice=[
+    die(),
+    die(),
+    die(),
+    die(),
+    die()
+  ];
+
+  r.held=[
+    false,
+    false,
+    false,
+    false,
+    false
+  ];
+
+  r.settled=[
+    false,
+    false,
+    false,
+    false,
+    false
+  ];
+
+  r.hasRolled=true;
+
+  /*
+    Na iedere worp moet minimaal
+    één nieuwe steen worden vastgezet.
+  */
+  r.mustHold=true;
+
+  r.canUndo=false;
+
+  r.rollSeq++;
+
+  r.banner=
+    'Nieuwe worp. Tik minimaal één dobbelsteen aan.';
+
+  log(
+    r,
+    r.players[
+      r.current
+    ].name+
+    ' heeft gegooid.'
+  );
+
+  bump(r);
+
+}
+
+function hold(
+  r,
+  i
+){
+
+  if(
+    !Number.isInteger(i) ||
+    i<0 ||
+    i>4
+  ){
+
+    throw Error(
+      'Ongeldige steen.'
+    );
+
+  }
+
+  if(
+    !r.mustHold
+  ){
+
+    throw Error(
+      'Je hebt al een nieuwe steen vastgezet.'
+    );
+
+  }
+
+  if(
+    r.held[i]
+  ){
+
+    throw Error(
+      'Deze steen staat al vast.'
+    );
+
+  }
+
+  r.held[i]=true;
+
+  r.mustHold=false;
+
+  r.canUndo=true;
+
+  r.banner=
+    'Steen vastgezet. Je mag opnieuw gooien.';
+
+  bump(r);
+
+}
+
+function undo(r){
+
+  let i=-1;
+
+  for(
+    let n=4;
+    n>=0;
+    n--
+  ){
+
+    if(
+      r.held[n]
+    ){
+
+      i=n;
+
+      break;
+
+    }
+
+  }
+
+  if(
+    i<0
+  ){
+
+    throw Error(
+      'Geen vasthouding om terug te draaien.'
+    );
+
+  }
+
+  r.held[i]=false;
+
+  r.mustHold=true;
+
+  r.canUndo=false;
+
+  bump(r);
+
+}
+
+function reroll(r){
+
+  if(
+    r.mustHold
+  ){
+
+    throw Error(
+      'Tik eerst minimaal één nieuwe dobbelsteen aan.'
+    );
+
+  }
+
+  if(
+    r.held.every(Boolean)
+  ){
+
+    throw Error(
+      'Alle dobbelstenen staan vast.'
+    );
+
+  }
+
+  for(
+    let i=0;
+    i<5;
+    i++
+  ){
+
+    if(
+      !r.held[i]
+    ){
+
+      r.dice[i]=die();
+
+    }
+
+  }
+
+  r.mustHold=true;
+  r.canUndo=false;
+  r.rollSeq++;
+
+  r.banner=
+    'Nieuwe worp. Tik minimaal één nieuwe steen aan.';
+
+  bump(r);
+
+}
+
+function resolveRound(
+  r,
+  pi
+){
+
+  let hits=0;
+
+  /*
+    Alleen NIEUWE doelstenen tellen.
+  */
+  for(
+    let i=0;
+    i<5;
+    i++
+  ){
+
+    if(
+      !r.settled[i] &&
+      r.dice[i]===
+      r.target
+    ){
+
+      r.settled[i]=true;
+      r.held[i]=true;
+
+      hits++;
+
+    }
+
+  }
+
+  /*
+    Geen doelsteen = MIS.
+  */
+  if(
+    hits===0
+  ){
+
+    r.banner=
+      '❌ MIS! Geen '+
+      r.target+
+      ' gegooid.';
+
+    log(
+      r,
+      r.players[pi].name+
+      ' heeft geen '+
+      r.target+
+      ' gegooid.'
+    );
+
+    finish(r);
+
+    return {
+      sound:'pay'
+    };
+
+  }
+
+  /*
+    Iedere nieuwe doelsteen
+    betaalt/verdient afzonderlijk.
+  */
+  const amount=
+    r.target*
+    0.5*
+    hits;
+
+  transfer(
+    r,
+    pi,
+    amount,
+    r.mode==='earn'
+  );
+
+  log(
+    r,
+    r.players[pi].name+
+    ' '+
+    (
+      r.mode==='earn'
+        ? 'verdient '
+        : 'betaalt '
+    )+
+    '€'+
+    amount.toFixed(2)+
+    ' met '+
+    hits+
+    ' nieuwe '+
+    r.target+
+    "'en."
+  );
+
+  r.banner=
+    (
+      r.mode==='earn'
+        ? 'VERDIEND: '
+        : 'BETAALD: '
+    )+
+    '€'+
+    amount.toFixed(2)+
+    ' met '+
+    hits+
+    ' nieuwe '+
+    r.target+
+    "'en.";
+
+  /*
+    VOLLE BAK:
+    alle vijf zijn doelstenen.
+
+    Dan opnieuw vijf dobbelstenen.
+  */
+  if(
+    r.settled.every(Boolean)
+  ){
+
+    r.dice=[
+      die(),
+      die(),
+      die(),
+      die(),
+      die()
+    ];
+
+    r.held=[
+      false,
+      false,
+      false,
+      false,
+      false
+    ];
+
+    r.settled=[
+      false,
+      false,
+      false,
+      false,
+      false
+    ];
+
+    r.hasRolled=true;
+    r.mustHold=false;
+    r.canUndo=false;
+
+    r.rollSeq++;
+
+    r.banner+=
+      ' 🎲 VOLLE BAK! Nieuwe 5 dobbelstenen.';
+
+    log(
+      r,
+      'VOLLE BAK → nieuwe 5 dobbelstenen.'
+    );
+
+    bump(r);
+
+    return {
+      sound:
+        r.mode==='earn'
+          ? 'win'
+          : 'pay'
+    };
+
+  }
+
+  r.hasRolled=true;
+  r.mustHold=false;
+  r.canUndo=false;
+
+  bump(r);
+
+  return {
+    sound:
+      r.mode==='earn'
+        ? 'win'
+        : 'pay'
+  };
+
+}
+
+function accept(
+  r,
+  pi
+){
+
+  if(
+    r.mustHold
+  ){
+
+    throw Error(
+      'Je moet eerst minimaal één nieuwe steen vasthouden.'
+    );
+
+  }
+
+  const total=
+    r.dice.reduce(
+      (a,b)=>
+        a+b,
+      0
+    );
+
+  /*
+    11 of 24.
+  */
+  if(
+    total===11 ||
+    total===24
+  ){
+
+    transfer(
+      r,
+      pi,
+      .5,
+      false
+    );
+
+    log(
+      r,
+      r.players[pi].name+
+      ' gooide '+
+      total+
+      ' en betaalt €0,50 aan iedere tegenstander.'
+    );
+
+    r.banner=
+      total+
+      '! €0,50 betalen aan iedere tegenstander.';
+
+    finish(r);
+
+    return {
+      sound:'pay'
+    };
+
+  }
+
+  /*
+    Vijf dezelfde = volle bak.
+  */
+  const t=
+    full(r)
+      ? {
+          target:6,
+          mode:'earn'
+        }
+      : targetFor(total);
+
+  r.phase='round';
+
+  r.target=t.target;
+  r.mode=t.mode;
+
+  r.held=[
+    false,
+    false,
+    false,
+    false,
+    false
+  ];
+
+  r.settled=[
+    false,
+    false,
+    false,
+    false,
+    false
+  ];
+
+  r.mustHold=false;
+  r.canUndo=false;
+
+  r.banner=
+    t.mode==='earn'
+      ? 'VERDIENEN: '+
+        t.target+
+        "'EN"
+      : 'BETALEN: '+
+        t.target+
+        "'EN";
+
+  bump(r);
+
+  /*
+    De doelstenen van de geaccepteerde worp
+    worden direct verwerkt.
+  */
+  return resolveRound(
+    r,
+    pi
+  );
+
+}
+
+function roundRoll(
+  r,
+  pi
+){
+
+  /*
+    Alleen losse dobbelstenen opnieuw gooien.
+  */
+  for(
+    let i=0;
+    i<5;
+    i++
+  ){
+
+    if(
+      !r.settled[i]
+    ){
+
+      r.dice[i]=die();
+
+    }
+
+  }
+
+  r.rollSeq++;
+
+  return resolveRound(
+    r,
+    pi
+  );
+
+}
+
+function action(
+  r,
+  pi,
+  b
+){
+
+  /*
+    Alleen de admin mag START/NIEUW SPEL.
+  */
+  if(
+    r.current!==pi &&
+    b.action!=='newGame'
+  ){
+
+    throw Error(
+      'Het is niet jouw beurt.'
+    );
+
+  }
+
+  if(
+    b.action==='start'
+  ){
+
+    if(
+      pi!==r.admin
+    ){
+
+      throw Error(
+        'Alleen de admin kan starten.'
+      );
+
+    }
+
+    if(
+      r.phase!=='lobby'
+    ){
+
+      throw Error(
+        'Het spel is al gestart.'
+      );
+
+    }
+
+    begin(r);
+
+    return {
+      sound:'roll'
+    };
+
+  }
+
+  if(
+    b.action==='newGame'
+  ){
+
+    if(
+      pi!==r.admin
+    ){
+
+      throw Error(
+        'Alleen de admin kan een nieuw spel starten.'
+      );
+
+    }
+
+    r.phase='lobby';
+
+    r.current=0;
+
+    r.dice=[
+      1,1,1,1,1
+    ];
+
+    r.held=[
+      false,
+      false,
+      false,
+      false,
+      false
+    ];
+
+    r.settled=[
+      false,
+      false,
+      false,
+      false,
+      false
+    ];
+
+    r.hasRolled=false;
+    r.mustHold=false;
+    r.canUndo=false;
+
+    r.target=null;
+    r.mode=null;
+
+    r.banner=
+      'Wacht op spelers...';
+
+    r.players.forEach(
+      p=>{
+        p.money=100;
+      }
+    );
+
+    log(
+      r,
+      'Nieuw spel aangemaakt door de admin.'
+    );
+
+    bump(r);
+
+    return {};
+
+  }
+
+  if(
+    b.action==='hold'
+  ){
+
+    if(
+      r.phase!=='main'
+    ){
+
+      throw Error(
+        'Je kunt nu geen steen vasthouden.'
+      );
+
+    }
+
+    hold(
+      r,
+      Number(b.index)
+    );
+
+    return {
+      sound:'hold'
+    };
+
+  }
+
+  if(
+    b.action==='undo'
+  ){
+
+    undo(r);
+
+    return {
+      sound:'hold'
+    };
+
+  }
+
+  if(
+    b.action==='reroll'
+  ){
+
+    reroll(r);
+
+    return {
+      sound:'roll'
+    };
+
+  }
+
+  if(
+    b.action==='accept'
+  ){
+
+    return accept(
+      r,
+      pi
+    );
+
+  }
+
+  if(
+    b.action==='roundRoll'
+  ){
+
+    return roundRoll(
+      r,
+      pi
+    );
+
+  }
+
+  throw Error(
+    'Onbekende actie'
+  );
+
+}
+
+function session(req){
+
+  const c=
+    req.headers.cookie ||
+    '';
+
+  const m=
+    c.match(
+      /sid=([^;]+)/
+    );
+
+  return m
+    ? sessions.get(m[1])
+    : null;
+
+}
+
+function gp(req){
+
+  const s=
+    session(req);
+
+  if(!s){
+    return null;
+  }
+
+  const r=
+    rooms.get(
+      s.room
+    );
+
+  if(!r){
+    return null;
+  }
+
+  const i=
+    r.players.findIndex(
+      p=>
+        p.id===
+        s.player
+    );
+
+  if(
+    i<0
+  ){
+
+    return null;
+
+  }
+
+  return {
+    r,
+    i
+  };
+
+}
+
+function body(req){
 
   return new Promise(
     (resolve,reject)=>{
 
-      let data="";
+      let x='';
 
       req.on(
-        "data",
-        chunk=>{
+        'data',
+        c=>{
 
-          data+=chunk;
+          x+=c;
 
-          if(data.length>1000000){
-
-            reject(
-              new Error(
-                "Request te groot"
-              )
-            );
+          if(
+            x.length>
+            1000000
+          ){
 
             req.destroy();
 
@@ -2086,18 +2521,18 @@ function readBody(req){
       );
 
       req.on(
-        "end",
+        'end',
         ()=>{
 
           try{
 
             resolve(
-              data
-                ? JSON.parse(data)
+              x
+                ? JSON.parse(x)
                 : {}
             );
 
-          }catch(error){
+          }catch(e){
 
             resolve({});
 
@@ -2107,7 +2542,7 @@ function readBody(req){
       );
 
       req.on(
-        "error",
+        'error',
         reject
       );
 
@@ -2116,1330 +2551,78 @@ function readBody(req){
 
 }
 
-function randomId(){
-
-  return crypto
-    .randomBytes(16)
-    .toString("hex");
-
-}
-
-function die(){
-
-  return Math.floor(
-    Math.random()*6
-  )+1;
-
-}
-
-/* =========================================================
-   ROOM
-========================================================= */
-
-function createRoom(code){
-
-  const room={
-
-    code,
-
-    players:[],
-
-    current:0,
-
-    phase:"main",
-
-    dice:[
-      1,1,1,1,1
-    ],
-
-    held:[
-      false,
-      false,
-      false,
-      false,
-      false
-    ],
-
-    settled:[
-      false,
-      false,
-      false,
-      false,
-      false
-    ],
-
-    hasRolled:false,
-
-    mustHold:false,
-
-    canUndo:false,
-
-    target:null,
-
-    mode:null,
-
-    banner:
-      "Wacht op spelers...",
-
-    version:1,
-
-    rollSeq:0,
-
-    log:[],
-
-    chat:[]
-
-  };
-
-  rooms.set(
-    code,
-    room
-  );
-
-  return room;
-
-}
-
-function getRoom(code){
-
-  return (
-    rooms.get(code) ||
-    createRoom(code)
-  );
-
-}
-
-/* =========================================================
-   SESSION
-========================================================= */
-
-function getSession(req){
-
-  const cookie=
-    req.headers.cookie ||
-    "";
-
-  const match=
-    cookie.match(
-      /sid=([^;]+)/
-    );
-
-  if(!match){
-    return null;
-  }
-
-  return (
-    sessions.get(
-      match[1]
-    ) || null
-  );
-
-}
-
-function setCookie(
+function send(
   res,
-  sid
+  data,
+  status=200
 ){
 
-  res.setHeader(
-    "Set-Cookie",
-    "sid="+
-    sid+
-    "; Path=/; HttpOnly; SameSite=Lax"
+  res.writeHead(
+    status,
+    {
+      'Content-Type':
+        'application/json; charset=utf-8',
+
+      'Cache-Control':
+        'no-store'
+    }
+  );
+
+  res.end(
+    JSON.stringify(data)
   );
 
 }
-
-function getPlayer(req){
-
-  const session=
-    getSession(req);
-
-  if(!session){
-    return null;
-  }
-
-  const room=
-    rooms.get(
-      session.room
-    );
-
-  if(!room){
-    return null;
-  }
-
-  const index=
-    room.players.findIndex(
-      p=>
-        p.id===
-        session.player
-    );
-
-  if(index<0){
-    return null;
-  }
-
-  return {
-    room,
-    index,
-    player:
-      room.players[index]
-  };
-
-}
-
-/* =========================================================
-   STATE
-========================================================= */
-
-function publicState(
-  room,
-  index
-){
-
-  return {
-
-    me:index,
-
-    current:
-      room.current,
-
-    phase:
-      room.phase,
-
-    dice:
-      room.dice,
-
-    held:
-      room.held,
-
-    settled:
-      room.settled,
-
-    hasRolled:
-      room.hasRolled,
-
-    mustHold:
-      room.mustHold,
-
-    canUndo:
-      room.canUndo,
-
-    target:
-      room.target,
-
-    mode:
-      room.mode,
-
-    banner:
-      room.banner,
-
-    version:
-      room.version,
-
-    rollSeq:
-      room.rollSeq,
-
-    players:
-      room.players.map(
-        p=>({
-          name:p.name,
-          money:p.money,
-          active:p.active
-        })
-      ),
-
-    log:
-      room.log,
-
-    chat:
-      room.chat
-
-  };
-
-}
-
-function bump(room){
-
-  room.version++;
-
-}
-
-function addLog(
-  room,
-  text
-){
-
-  room.log.unshift(
-    text
-  );
-
-  if(room.log.length>50){
-    room.log.length=50;
-  }
-
-}
-
-function addChat(
-  room,
-  name,
-  text
-){
-
-  room.chat.push({
-    name,
-    text,
-    time:Date.now()
-  });
-
-  if(room.chat.length>80){
-    room.chat.shift();
-  }
-
-}
-
-/* =========================================================
-   PLAYERS
-========================================================= */
-
-function activeCount(room){
-
-  return room.players.filter(
-    p=>p.active
-  ).length;
-
-}
-
-function nextPlayer(room){
-
-  if(!room.players.length){
-    return;
-  }
-
-  for(
-    let step=1;
-    step<=room.players.length;
-    step++
-  ){
-
-    const index=
-      (
-        room.current+
-        step
-      ) %
-      room.players.length;
-
-    if(
-      room.players[index] &&
-      room.players[index].active
-    ){
-
-      room.current=
-        index;
-
-      return;
-
-    }
-
-  }
-
-}
-
-/* =========================================================
-   MONEY
-========================================================= */
-
-function transfer(
-  room,
-  currentIndex,
-  amount,
-  earn
-){
-
-  const current=
-    room.players[currentIndex];
-
-  if(!current){
-    return;
-  }
-
-  const others=
-    room.players.filter(
-      (p,index)=>
-        index!==currentIndex &&
-        p.active
-    );
-
-  for(
-    const player of others
-  ){
-
-    if(earn){
-
-      player.money+=amount;
-
-      current.money-=amount;
-
-    }else{
-
-      player.money-=amount;
-
-      current.money+=amount;
-
-    }
-
-  }
-
-}
-
-/* =========================================================
-   TURN
-========================================================= */
-
-function resetTurn(room){
-
-  room.phase="main";
-
-  room.dice=[
-    1,1,1,1,1
-  ];
-
-  room.held=[
-    false,
-    false,
-    false,
-    false,
-    false
-  ];
-
-  room.settled=[
-    false,
-    false,
-    false,
-    false,
-    false
-  ];
-
-  room.hasRolled=false;
-
-  room.mustHold=false;
-
-  room.canUndo=false;
-
-  room.target=null;
-
-  room.mode=null;
-
-}
-
-function finishTurn(room){
-
-  resetTurn(room);
-
-  nextPlayer(room);
-
-  const player=
-    room.players[
-      room.current
-    ];
-
-  room.banner=
-    player
-      ? player.name+
-        " is aan de beurt."
-      : "Wacht op spelers.";
-
-  bump(room);
-
-}
-
-/* =========================================================
-   TARGET
-========================================================= */
-
-function targetFor(total){
-
-  if(total<11){
-
-    return {
-      target:
-        Math.min(
-          6,
-          11-total
-        ),
-
-      mode:
-        "earn"
-    };
-
-  }
-
-  if(total>24){
-
-    return {
-      target:
-        Math.min(
-          6,
-          total-24
-        ),
-
-      mode:
-        "earn"
-    };
-
-  }
-
-  const distance=
-    Math.min(
-      total-11,
-      24-total
-    );
-
-  return {
-
-    target:
-      Math.min(
-        6,
-        distance
-      ),
-
-    mode:
-      "pay"
-
-  };
-
-}
-
-function fullHouse(room){
-
-  return room.dice.every(
-    value=>
-      value===
-      room.dice[0]
-  );
-
-}
-
-/* =========================================================
-   BEGIN
-========================================================= */
-
-function begin(room){
-
-  /*
-    SERVER-SIDE:
-    minimaal twee spelers.
-  */
-  if(
-    activeCount(room)<2
-  ){
-
-    throw new Error(
-      "Er moeten minimaal 2 spelers zijn om te beginnen."
-    );
-
-  }
-
-  room.phase="main";
-
-  room.dice=[
-    die(),
-    die(),
-    die(),
-    die(),
-    die()
-  ];
-
-  room.held=[
-    false,
-    false,
-    false,
-    false,
-    false
-  ];
-
-  room.settled=[
-    false,
-    false,
-    false,
-    false,
-    false
-  ];
-
-  room.hasRolled=true;
-
-  /*
-    VERPLICHT:
-    na deze worp eerst minstens
-    één steen aantikken.
-  */
-  room.mustHold=true;
-
-  room.canUndo=false;
-
-  room.rollSeq++;
-
-  room.banner=
-    room.players[room.current].name+
-    " heeft gegooid. Tik minimaal één dobbelsteen aan.";
-
-  addLog(
-    room,
-    room.players[room.current].name+
-    " begint de beurt."
-  );
-
-  bump(room);
-
-}
-
-/* =========================================================
-   HOLD
-========================================================= */
-
-function holdDie(
-  room,
-  index
-){
-
-  if(
-    !Number.isInteger(index) ||
-    index<0 ||
-    index>4
-  ){
-
-    throw new Error(
-      "Ongeldige dobbelsteen."
-    );
-
-  }
-
-  if(room.held[index]){
-
-    throw new Error(
-      "Deze dobbelsteen staat al vast."
-    );
-
-  }
-
-  room.held[index]=true;
-
-  room.mustHold=false;
-
-  room.canUndo=true;
-
-  room.banner=
-    "Steen vastgezet. Je mag opnieuw gooien.";
-
-  bump(room);
-
-}
-
-/* =========================================================
-   UNDO
-========================================================= */
-
-function undoHold(room){
-
-  let index=-1;
-
-  for(
-    let i=4;
-    i>=0;
-    i--
-  ){
-
-    if(room.held[i]){
-
-      index=i;
-
-      break;
-
-    }
-
-  }
-
-  if(index<0){
-
-    throw new Error(
-      "Geen steen om terug te draaien."
-    );
-
-  }
-
-  room.held[index]=false;
-
-  room.mustHold=true;
-
-  room.canUndo=false;
-
-  room.banner=
-    "Vasthouden teruggedraaid.";
-
-  bump(room);
-
-}
-
-/* =========================================================
-   NORMAL REROLL
-========================================================= */
-
-function rerollMain(room){
-
-  if(room.mustHold){
-
-    throw new Error(
-      "Tik eerst minimaal één nieuwe dobbelsteen aan."
-    );
-
-  }
-
-  if(room.held.every(Boolean)){
-
-    throw new Error(
-      "Alle vijf dobbelstenen staan vast."
-    );
-
-  }
-
-  for(
-    let i=0;
-    i<5;
-    i++
-  ){
-
-    if(!room.held[i]){
-
-      room.dice[i]=die();
-
-    }
-
-  }
-
-  room.mustHold=true;
-
-  room.canUndo=false;
-
-  room.hasRolled=true;
-
-  room.rollSeq++;
-
-  room.banner=
-    "Nieuwe worp. Tik minimaal één nieuwe steen aan.";
-
-  bump(room);
-
-}
-
-/* =========================================================
-   ROUND RESOLVE
-========================================================= */
-
-function resolveRound(
-  room,
-  playerIndex
-){
-
-  let hits=0;
-
-  /*
-    Alleen nieuwe doelstenen tellen.
-  */
-  for(
-    let i=0;
-    i<5;
-    i++
-  ){
-
-    if(room.settled[i]){
-      continue;
-    }
-
-    if(
-      room.dice[i]===
-      room.target
-    ){
-
-      room.settled[i]=true;
-
-      room.held[i]=true;
-
-      hits++;
-
-    }
-
-  }
-
-  /*
-    Geen doelsteen.
-  */
-  if(hits===0){
-
-    room.banner=
-      "❌ MIS! Geen "+
-      room.target+
-      " gegooid.";
-
-    addLog(
-      room,
-      room.players[playerIndex].name+
-      " heeft geen "+
-      room.target+
-      " gegooid."
-    );
-
-    bump(room);
-
-    finishTurn(room);
-
-    return {
-      sound:"pay"
-    };
-
-  }
-
-  /*
-    Iedere nieuwe doelsteen
-    telt afzonderlijk.
-  */
-  const amountPerDie=
-    room.target*0.50;
-
-  const totalAmount=
-    amountPerDie*hits;
-
-  transfer(
-    room,
-    playerIndex,
-    totalAmount,
-    room.mode==="earn"
-  );
-
-  const action=
-    room.mode==="earn"
-      ? "verdient"
-      : "betaalt";
-
-  room.banner=
-    room.players[playerIndex].name+
-    " "+
-    action+
-    " €"+
-    totalAmount.toFixed(2)+
-    " met "+
-    hits+
-    " nieuwe "+
-    room.target+
-    "'en.";
-
-  addLog(
-    room,
-    room.players[playerIndex].name+
-    " "+
-    action+
-    " €"+
-    totalAmount.toFixed(2)+
-    "."
-  );
-
-  /*
-    VOLLE BAK:
-    alle vijf zijn doelstenen.
-
-    Dan NIET stoppen.
-
-    Nieuwe vijf dobbelstenen.
-  */
-  if(
-    room.settled.every(Boolean)
-  ){
-
-    room.dice=[
-      die(),
-      die(),
-      die(),
-      die(),
-      die()
-    ];
-
-    room.held=[
-      false,
-      false,
-      false,
-      false,
-      false
-    ];
-
-    room.settled=[
-      false,
-      false,
-      false,
-      false,
-      false
-    ];
-
-    room.hasRolled=true;
-
-    room.mustHold=false;
-
-    room.canUndo=false;
-
-    room.rollSeq++;
-
-    room.banner+=
-      " 🎲 VOLLE BAK! Nieuwe worp met 5 dobbelstenen.";
-
-    addLog(
-      room,
-      "VOLLE BAK → nieuwe worp met 5 dobbelstenen."
-    );
-
-    bump(room);
-
-    return {
-      sound:
-        room.mode==="earn"
-          ? "win"
-          : "pay"
-    };
-
-  }
-
-  room.hasRolled=true;
-
-  room.mustHold=false;
-
-  room.canUndo=false;
-
-  bump(room);
-
-  return {
-    sound:
-      room.mode==="earn"
-        ? "win"
-        : "pay"
-  };
-
-}
-
-/* =========================================================
-   ACCEPT
-========================================================= */
-
-function accept(
-  room,
-  playerIndex
-){
-
-  if(room.mustHold){
-
-    throw new Error(
-      "Je moet eerst minimaal één nieuwe steen vasthouden."
-    );
-
-  }
-
-  const total=
-    room.dice.reduce(
-      (a,b)=>
-        a+b,
-      0
-    );
-
-  /*
-    11 / 24
-  */
-  if(
-    total===11 ||
-    total===24
-  ){
-
-    transfer(
-      room,
-      playerIndex,
-      0.50,
-      false
-    );
-
-    room.banner=
-      total+
-      "! €0,50 betalen aan iedere tegenstander.";
-
-    addLog(
-      room,
-      room.players[playerIndex].name+
-      " gooide "+
-      total+
-      " en betaalt €0,50."
-    );
-
-    bump(room);
-
-    finishTurn(room);
-
-    return {
-      sound:"pay"
-    };
-
-  }
-
-  let result=
-    targetFor(total);
-
-  /*
-    VOLLE BAK:
-    vijf dezelfde = 6 verdienen.
-  */
-  if(fullHouse(room)){
-
-    result={
-      target:6,
-      mode:"earn"
-    };
-
-    addLog(
-      room,
-      "VOLLE BAK! Doelsteen 6."
-    );
-
-  }
-
-  room.phase="round";
-
-  room.target=
-    result.target;
-
-  room.mode=
-    result.mode;
-
-  room.held=[
-    false,
-    false,
-    false,
-    false,
-    false
-  ];
-
-  room.settled=[
-    false,
-    false,
-    false,
-    false,
-    false
-  ];
-
-  room.mustHold=false;
-
-  room.canUndo=false;
-
-  room.banner=
-    result.mode==="earn"
-      ? "VERDIENEN: "+
-        result.target+
-        "'EN"
-      : "BETALEN: "+
-        result.target+
-        "'EN";
-
-  bump(room);
-
-  /*
-    De geaccepteerde worp meteen verwerken.
-  */
-  return resolveRound(
-    room,
-    playerIndex
-  );
-
-}
-
-/* =========================================================
-   ROUND ROLL
-========================================================= */
-
-function roundRoll(
-  room,
-  playerIndex
-){
-
-  const loose=[];
-
-  for(
-    let i=0;
-    i<5;
-    i++
-  ){
-
-    if(
-      !room.settled[i]
-    ){
-
-      loose.push(i);
-
-    }
-
-  }
-
-  /*
-    Veiligheid:
-    als alle vijf doelstenen zijn,
-    nieuwe vijf.
-  */
-  if(
-    loose.length===0
-  ){
-
-    room.dice=[
-      die(),
-      die(),
-      die(),
-      die(),
-      die()
-    ];
-
-    room.held=[
-      false,
-      false,
-      false,
-      false,
-      false
-    ];
-
-    room.settled=[
-      false,
-      false,
-      false,
-      false,
-      false
-    ];
-
-  }else{
-
-    /*
-      Alleen losse dobbelstenen.
-    */
-    for(
-      const index of loose
-    ){
-
-      room.dice[index]=die();
-
-    }
-
-  }
-
-  room.hasRolled=true;
-
-  room.rollSeq++;
-
-  bump(room);
-
-  return resolveRound(
-    room,
-    playerIndex
-  );
-
-}
-
-/* =========================================================
-   ACTION
-========================================================= */
-
-function doAction(
-  room,
-  playerIndex,
-  action,
-  body
-){
-
-  if(
-    !room.players[playerIndex] ||
-    !room.players[playerIndex].active
-  ){
-
-    throw new Error(
-      "Je bent niet actief."
-    );
-
-  }
-
-  if(
-    room.current!==playerIndex
-  ){
-
-    throw new Error(
-      "Het is niet jouw beurt."
-    );
-
-  }
-
-  if(
-    action==="begin"
-  ){
-
-    begin(room);
-
-    return {
-      sound:"roll"
-    };
-
-  }
-
-  if(
-    action==="holdDie"
-  ){
-
-    if(
-      room.phase!=="main"
-    ){
-
-      throw new Error(
-        "Je kunt nu geen steen vasthouden."
-      );
-
-    }
-
-    if(
-      !room.hasRolled
-    ){
-
-      throw new Error(
-        "Je moet eerst gooien."
-      );
-
-    }
-
-    if(
-      !room.mustHold
-    ){
-
-      throw new Error(
-        "Je hebt al een nieuwe steen vastgehouden."
-      );
-
-    }
-
-    holdDie(
-      room,
-      Number(body.index)
-    );
-
-    return {
-      sound:"hold"
-    };
-
-  }
-
-  if(
-    action==="undo"
-  ){
-
-    if(
-      room.phase!=="main"
-    ){
-
-      throw new Error(
-        "Dit kan nu niet."
-      );
-
-    }
-
-    undoHold(room);
-
-    return {
-      sound:"hold"
-    };
-
-  }
-
-  if(
-    action==="reroll"
-  ){
-
-    rerollMain(room);
-
-    return {
-      sound:"roll"
-    };
-
-  }
-
-  if(
-    action==="accept"
-  ){
-
-    return accept(
-      room,
-      playerIndex
-    );
-
-  }
-
-  if(
-    action==="roundRoll"
-  ){
-
-    return roundRoll(
-      room,
-      playerIndex
-    );
-
-  }
-
-  throw new Error(
-    "Onbekende actie."
-  );
-
-}
-
-/* =========================================================
-   HTTP
-========================================================= */
 
 const server=
   http.createServer(
-    async(req,res)=>{
+    async(
+      req,
+      res
+    )=>{
 
       try{
 
-        /*
-          URL.pathname gebruiken.
-          Daardoor werkt ook:
-
-          /?utm_source=chatgpt.com
-        */
-        const url=
+        const u=
           new URL(
             req.url,
-            "http://"+
-            (
-              req.headers.host ||
-              "localhost"
-            )
+            'http://localhost'
           );
 
-        const pathname=
-          url.pathname;
-
-        /* HOME */
-
+        /*
+          HOME
+        */
         if(
-          req.method==="GET" &&
-          pathname==="/"
+          req.method==='GET' &&
+          u.pathname==='/'
         ){
 
-          return sendHtml(res);
+          res.writeHead(
+            200,
+            {
+              'Content-Type':
+                'text/html; charset=utf-8',
+
+              'Cache-Control':
+                'no-store'
+            }
+          );
+
+          return res.end(
+            HTML
+          );
 
         }
 
-        /* HEALTH */
-
+        /*
+          HEALTH
+        */
         if(
-          req.method==="GET" &&
-          pathname==="/health"
+          req.method==='GET' &&
+          u.pathname==='/health'
         ){
 
-          return json(
+          return send(
             res,
             {
               ok:true
@@ -3448,244 +2631,248 @@ const server=
 
         }
 
-        /* STATE */
-
+        /*
+          STATE
+        */
         if(
-          req.method==="GET" &&
-          pathname==="/api/state"
+          req.method==='GET' &&
+          u.pathname==='/api/state'
         ){
 
-          const gp=
-            getPlayer(req);
+          const x=
+            gp(req);
 
-          if(!gp){
+          if(!x){
 
-            return json(
+            return send(
               res,
               {
                 error:
-                  "Geen sessie"
+                  'Geen sessie'
               },
               401
             );
 
           }
 
-          return json(
+          return send(
             res,
-            publicState(
-              gp.room,
-              gp.index
+            pub(
+              x.r,
+              x.i
             )
           );
 
         }
 
-        /* JOIN */
-
+        /*
+          JOIN
+        */
         if(
-          req.method==="POST" &&
-          pathname==="/api/join"
+          req.method==='POST' &&
+          u.pathname==='/api/join'
         ){
 
-          const body=
-            await readBody(req);
+          const b=
+            await body(req);
 
-          let name=
+          let roomCode=
             String(
-              body.name ||
-              "Speler"
+              b.room ||
+              ''
             )
             .trim()
-            .slice(0,20);
+            .toUpperCase();
 
-          if(!name){
-            name="Speler";
-          }
+          let r;
 
-          const roomCode=
-            String(
-              body.room ||
-              "casino"
-            )
-            .trim()
-            .slice(0,30) ||
-            "casino";
+          /*
+            Geen room:
+            maak nieuwe privékamer.
+          */
+          if(
+            roomCode
+          ){
 
-          const room=
-            getRoom(
-              roomCode
-            );
+            r=
+              rooms.get(
+                roomCode
+              );
 
-          let player=
-            room.players.find(
-              p=>
-                p.name.toLowerCase()===
-                name.toLowerCase()
-            );
+            if(!r){
 
-          if(!player){
-
-            if(
-              room.players.length>=4
-            ){
-
-              return json(
+              return send(
                 res,
                 {
                   error:
-                    "Maximaal 4 spelers."
+                    'Deze spelkamer bestaat niet.'
+                },
+                404
+              );
+
+            }
+
+          }else{
+
+            r=
+              roomFor('');
+
+          }
+
+          let name=
+            String(
+              b.name ||
+              'Speler'
+            )
+            .trim()
+            .slice(0,20) ||
+            'Speler';
+
+          let p=
+            r.players.find(
+              x=>
+                x.name.toLowerCase()===
+                name.toLowerCase()
+            );
+
+          if(!p){
+
+            if(
+              r.players.length>=4
+            ){
+
+              return send(
+                res,
+                {
+                  error:
+                    'Maximaal 4 spelers in één kamer.'
                 },
                 400
               );
 
             }
 
-            player={
-
-              id:
-                randomId(),
-
+            p={
+              id:id(),
               name,
-
-              money:
-                100,
-
+              money:100,
               active:true
-
             };
 
-            room.players.push(
-              player
-            );
-
-            if(
-              room.players.length===1
-            ){
-
-              room.current=0;
-
-            }
+            r.players.push(p);
 
             /*
-              Zodra er een tweede speler komt,
-              wordt de eerste speler duidelijk
-              geïnformeerd.
+              Eerste speler wordt admin.
             */
             if(
-              activeCount(room)>=2 &&
-              !room.hasRolled
+              r.admin===null
             ){
 
-              room.banner=
-                room.players[
-                  room.current
-                ].name+
-                " is aan de beurt. Klaar om te spelen.";
+              r.admin=
+                r.players.length-1;
 
             }
 
-            addLog(
-              room,
+            log(
+              r,
               name+
-              " is de kamer binnengekomen."
+              ' is de kamer binnengekomen.'
             );
 
-            bump(room);
+            bump(r);
 
           }else{
 
-            player.active=true;
+            p.active=true;
 
           }
 
           const sid=
-            randomId();
+            id();
 
           sessions.set(
             sid,
             {
-              room:roomCode,
-              player:player.id
+              room:r.code,
+              player:p.id
             }
           );
 
-          setCookie(
-            res,
-            sid
+          res.setHeader(
+            'Set-Cookie',
+            'sid='+
+            sid+
+            '; Path=/; HttpOnly; SameSite=Lax'
           );
 
-          return json(
+          return send(
             res,
-            publicState(
-              room,
-              room.players.findIndex(
-                p=>
-                  p.id===
-                  player.id
+            pub(
+              r,
+              r.players.findIndex(
+                x=>
+                  x.id===
+                  p.id
               )
             )
           );
 
         }
 
-        /* ACTION */
-
+        /*
+          ACTION
+        */
         if(
-          req.method==="POST" &&
-          pathname==="/api/action"
+          req.method==='POST' &&
+          u.pathname==='/api/action'
         ){
 
-          const gp=
-            getPlayer(req);
+          const x=
+            gp(req);
 
-          if(!gp){
+          if(!x){
 
-            return json(
+            return send(
               res,
               {
                 error:
-                  "Geen sessie"
+                  'Geen sessie'
               },
               401
             );
 
           }
 
-          const body=
-            await readBody(req);
+          const b=
+            await body(req);
 
           try{
 
-            const result=
-              doAction(
-                gp.room,
-                gp.index,
-                body.action,
-                body
+            const z=
+              action(
+                x.r,
+                x.i,
+                b
               );
 
-            return json(
+            return send(
               res,
               {
-                ...publicState(
-                  gp.room,
-                  gp.index
+                ...pub(
+                  x.r,
+                  x.i
                 ),
-
-                sound:
-                  result.sound
+                sound:z.sound
               }
             );
 
-          }catch(error){
+          }catch(e){
 
-            return json(
+            return send(
               res,
               {
                 error:
-                  error.message ||
-                  "Actie mislukt."
+                  e.message
               },
               400
             );
@@ -3694,93 +2881,98 @@ const server=
 
         }
 
-        /* CHAT */
-
+        /*
+          CHAT
+        */
         if(
-          req.method==="POST" &&
-          pathname==="/api/chat"
+          req.method==='POST' &&
+          u.pathname==='/api/chat'
         ){
 
-          const gp=
-            getPlayer(req);
+          const x=
+            gp(req);
 
-          if(!gp){
+          if(!x){
 
-            return json(
+            return send(
               res,
               {
                 error:
-                  "Geen sessie"
+                  'Geen sessie'
               },
               401
             );
 
           }
 
-          const body=
-            await readBody(req);
+          const b=
+            await body(req);
 
           const text=
             String(
-              body.text ||
-              ""
+              b.text ||
+              ''
             )
             .trim()
             .slice(0,200);
 
           if(!text){
 
-            return json(
+            return send(
               res,
               {
                 error:
-                  "Leeg bericht."
+                  'Leeg bericht'
               },
               400
             );
 
           }
 
-          addChat(
-            gp.room,
-            gp.player.name,
+          x.r.chat.push({
+            name:
+              x.r.players[x.i].name,
             text
-          );
+          });
 
-          bump(
-            gp.room
-          );
+          if(
+            x.r.chat.length>80
+          ){
 
-          return json(
+            x.r.chat.shift();
+
+          }
+
+          bump(x.r);
+
+          return send(
             res,
-            publicState(
-              gp.room,
-              gp.index
+            pub(
+              x.r,
+              x.i
             )
           );
 
         }
 
-        return json(
+        return send(
           res,
           {
             error:
-              "Niet gevonden"
+              'Niet gevonden'
           },
           404
         );
 
-      }catch(error){
+      }catch(e){
 
-        console.error(
-          error
-        );
+        console.error(e);
 
-        return json(
+        return send(
           res,
           {
             error:
-              "Serverfout"
+              'Serverfout'
           },
           500
         );
@@ -3794,7 +2986,7 @@ server.listen(
   PORT,
   ()=>{
     console.log(
-      "Dobbelen 11/24 gestart op poort "+
+      'Dobbelen 11/24 draait op poort '+
       PORT
     );
   }
