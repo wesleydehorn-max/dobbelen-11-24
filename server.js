@@ -884,7 +884,7 @@ wss.on("connection", function(ws) {
 
       if (player) {
         player.ws = null;
-  }
+      }
 
       state(room);
     }
