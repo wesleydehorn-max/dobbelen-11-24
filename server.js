@@ -112,7 +112,7 @@ function resolve(r){
   r.phase="round";
 }
 
-function action(r,p,a){
+function action(r,p,a,index){
   if(!r.started)throw Error("Het spel is nog niet gestart.");
   if(r.players[r.current].id!==p.id)throw Error("Je bent niet aan de beurt.");
 
