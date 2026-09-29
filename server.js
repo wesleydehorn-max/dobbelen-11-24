@@ -237,7 +237,6 @@ Join kamer
 
 </div>
 
-
 <div id="game" class="hidden">
 
 <div class="card">
@@ -260,45 +259,27 @@ Join kamer
 
 </div>
 
-
 <div class="card">
 
 <h3>Spelers</h3>
 
-<div
-id="players"
-class="players">
-</div>
+<div id="players" class="players"></div>
 
 </div>
-
 
 <div class="card">
 
-<div
-class="big"
-id="total">
-—
-</div>
+<div class="big" id="total">—</div>
 
-<div
-class="muted"
-style="text-align:center">
+<div class="muted" style="text-align:center">
 Totaal van de dobbelstenen
 </div>
 
-<div
-id="dice"
-class="dice">
-</div>
+<div id="dice" class="dice"></div>
 
-<div
-class="row"
-style="justify-content:center">
+<div class="row" style="justify-content:center">
 
-<button
-id="roll"
-onclick="roll()">
+<button id="roll" onclick="roll()">
 🎲 Gooien
 </button>
 
@@ -309,9 +290,7 @@ onclick="holdAll()">
 Alles vasthouden
 </button>
 
-<button
-id="agree"
-onclick="agree()">
+<button id="agree" onclick="agree()">
 Akkoord
 </button>
 
@@ -319,20 +298,15 @@ Akkoord
 
 </div>
 
-
 <div class="card">
 
 <div class="row">
 
-<button
-id="start"
-onclick="startGame()">
+<button id="start" onclick="startGame()">
 Start spel
 </button>
 
-<button
-class="danger"
-onclick="leaveRoom()">
+<button class="danger" onclick="leaveRoom()">
 Kamer verlaten
 </button>
 
@@ -345,19 +319,13 @@ anders verdien je het totaal × €0,50.
 
 </div>
 
-
 <div class="card">
 
 <h3>Chat</h3>
 
-<div
-id="chat"
-class="chat">
-</div>
+<div id="chat" class="chat"></div>
 
-<div
-class="row"
-style="margin-top:8px">
+<div class="row" style="margin-top:8px">
 
 <input
 id="chatInput"
@@ -376,22 +344,19 @@ Verstuur
 
 </div>
 
-
 <script>
 
-let ws;
+let ws = null;
 let room = null;
 let me = null;
 
 const $ = id => document.getElementById(id);
 
-
 function msg(t){
 $('homeMsg').textContent = t || '';
 }
 
-
-function connect(){
+function connect(callback){
 
 const proto =
 location.protocol === 'https:'
@@ -402,7 +367,9 @@ ws = new WebSocket(
 proto + '://' + location.host
 );
 
-ws.onopen = () => {};
+ws.onopen = () => {
+if(callback) callback();
+};
 
 ws.onmessage = e => {
 handle(JSON.parse(e.data));
@@ -423,10 +390,9 @@ msg('Verbinding mislukt. Probeer opnieuw.');
 
 }
 
-
 function send(type,data={}){
 
-if(ws && ws.readyState === 1){
+if(ws && ws.readyState === WebSocket.OPEN){
 
 ws.send(
 JSON.stringify({
@@ -439,35 +405,31 @@ type,
 
 }
 
-
 function getName(){
 
 return $('name').value.trim() || 'Speler';
 
 }
 
-
 function createRoom(){
 
-connect();
+const name = getName();
 
-setTimeout(() => {
+connect(() => {
 
 send('create',{
-name:getName()
+name:name
 });
 
-},150);
+});
 
 }
-
 
 function showJoin(){
 
 $('joinBox').classList.remove('hidden');
 
 }
-
 
 function joinRoom(){
 
@@ -482,19 +444,18 @@ return;
 
 }
 
-connect();
+const name = getName();
 
-setTimeout(() => {
+connect(() => {
 
 send('join',{
-name:getName(),
-code
+name:name,
+code:code
 });
 
-},150);
+});
 
 }
-
 
 function handle(m){
 
@@ -515,10 +476,9 @@ return;
 
 }
 
-
 if(m.type === 'joined'){
 
-room = m.room;
+room = m.state;
 me = m.playerId;
 
 $('home').classList.add('hidden');
@@ -530,7 +490,6 @@ return;
 
 }
 
-
 if(m.type === 'state'){
 
 render(m.state);
@@ -538,7 +497,6 @@ render(m.state);
 return;
 
 }
-
 
 if(m.type === 'chat'){
 
@@ -561,36 +519,34 @@ return;
 
 }
 
-
 function render(s){
+
+room = s;
 
 $('roomCode').textContent =
 s.code;
 
+const mine =
+s.players.find(p => p.id === me);
+
 $('balance').textContent =
-(
-s.players.find(p => p.id === me)
-?.balance ?? 100
-).toFixed(2);
+(mine ? mine.balance : 100).toFixed(2);
 
 $('status').textContent =
 s.message || '';
 
 $('start').disabled =
-s.started ||
-s.players.length < 1;
+s.started;
 
 $('start').textContent =
 s.started
 ? 'Spel bezig'
 : 'Start spel';
 
-
 const ps =
 $('players');
 
 ps.innerHTML = '';
-
 
 s.players.forEach(p => {
 
@@ -605,7 +561,7 @@ d.innerHTML =
 '<b>' +
 esc(p.name) +
 '</b><br>€' +
-p.balance.toFixed(2) +
+Number(p.balance).toFixed(2) +
 (p.id === s.turnPlayerId
 ? ' 🎯'
 : '');
@@ -614,12 +570,10 @@ ps.appendChild(d);
 
 });
 
-
 const dice =
 $('dice');
 
 dice.innerHTML = '';
-
 
 (s.dice || []).forEach((v,i) => {
 
@@ -628,9 +582,7 @@ document.createElement('button');
 
 d.className =
 'die' +
-(s.held?.[i]
-? ' held'
-: '');
+(s.held?.[i] ? ' held' : '');
 
 d.textContent = v;
 
@@ -646,18 +598,15 @@ dice.appendChild(d);
 
 });
 
-
 $('total').textContent =
 s.dice?.length
 ? s.dice.reduce((a,b) => a+b,0)
 : '—';
 
-
 const myTurn =
 s.turnPlayerId === me &&
 s.started &&
 !s.turnDone;
-
 
 $('roll').disabled =
 !myTurn ||
@@ -674,7 +623,6 @@ s.rolls < 1;
 
 }
 
-
 function esc(x){
 
 return String(x).replace(
@@ -690,13 +638,11 @@ c => ({
 
 }
 
-
 function startGame(){
 
 send('start');
 
 }
-
 
 function roll(){
 
@@ -704,20 +650,17 @@ send('roll');
 
 }
 
-
 function holdAll(){
 
 send('holdAll');
 
 }
 
-
 function agree(){
 
 send('agree');
 
 }
-
 
 function sendChat(){
 
@@ -739,21 +682,16 @@ x.value = '';
 
 }
 
-
 function leaveRoom(){
 
 location.reload();
 
 }
 
-
-connect();
-
 </script>
 
 </body>
 </html>`;
-
 
 function cleanName(name){
 
@@ -762,7 +700,6 @@ return typeof name === 'string'
 : 'Speler';
 
 }
-
 
 function makeCode(){
 
@@ -782,7 +719,6 @@ return c;
 
 }
 
-
 function playerState(p){
 
 return {
@@ -792,7 +728,6 @@ balance:p.balance
 };
 
 }
-
 
 function publicState(r){
 
@@ -822,7 +757,6 @@ message:r.message
 
 }
 
-
 function broadcast(r){
 
 const state =
@@ -839,10 +773,10 @@ state
 
 }
 
-
 function send(ws,o){
 
 if(
+ws &&
 ws.readyState ===
 WebSocket.OPEN
 ){
@@ -854,7 +788,6 @@ JSON.stringify(o)
 }
 
 }
-
 
 function finishTurn(r){
 
@@ -868,7 +801,6 @@ r.dice.reduce(
 );
 
 let amount;
-
 
 if(total >= 11 && total <= 24){
 
@@ -906,9 +838,7 @@ total +
 
 }
 
-
 r.turnDone = true;
-
 
 setTimeout(() => {
 
@@ -944,7 +874,6 @@ broadcast(r);
 
 }
 
-
 function onMessage(ws,m){
 
 if(
@@ -952,7 +881,6 @@ if(
 typeof m.type !== 'string'
 )
 return;
-
 
 if(m.type === 'create'){
 
@@ -986,7 +914,6 @@ message:'Wacht op spelers.'
 
 };
 
-
 const p = {
 
 id:
@@ -1003,7 +930,6 @@ START_BALANCE,
 ws
 
 };
-
 
 r.players.push(p);
 
@@ -1029,7 +955,6 @@ return;
 
 }
 
-
 if(m.type === 'join'){
 
 const r =
@@ -1037,7 +962,6 @@ rooms.get(
 String(m.code || '')
 .toUpperCase()
 );
-
 
 if(!r){
 
@@ -1048,7 +972,6 @@ message:'Kamer bestaat niet.'
 
 }
 
-
 if(r.started){
 
 return send(ws,{
@@ -1058,7 +981,6 @@ message:'Het spel is al gestart.'
 
 }
 
-
 if(r.players.length >= MAX_PLAYERS){
 
 return send(ws,{
@@ -1067,7 +989,6 @@ message:'Kamer is vol.'
 });
 
 }
-
 
 const p = {
 
@@ -1085,7 +1006,6 @@ START_BALANCE,
 ws
 
 };
-
 
 r.players.push(p);
 
@@ -1115,13 +1035,11 @@ return;
 
 }
 
-
 const r =
 rooms.get(ws.room);
 
 if(!r)
 return;
-
 
 const p =
 r.players.find(
@@ -1130,7 +1048,6 @@ x => x.ws === ws
 
 if(!p)
 return;
-
 
 if(m.type === 'start'){
 
@@ -1157,7 +1074,6 @@ return;
 
 }
 
-
 if(m.type === 'roll'){
 
 if(
@@ -1168,6 +1084,17 @@ r.rolls >= 3
 )
 return;
 
+if(!r.dice.length){
+
+r.dice = [
+1,
+1,
+1,
+1,
+1
+];
+
+}
 
 for(
 let i=0;
@@ -1187,7 +1114,6 @@ Math.random() * 6
 
 }
 
-
 r.rolls++;
 
 r.message =
@@ -1202,7 +1128,6 @@ return;
 
 }
 
-
 if(m.type === 'hold'){
 
 if(
@@ -1212,10 +1137,8 @@ r.turnDone
 )
 return;
 
-
 const i =
 Number(m.index);
-
 
 if(
 Number.isInteger(i) &&
@@ -1234,7 +1157,6 @@ return;
 
 }
 
-
 if(m.type === 'holdAll'){
 
 if(
@@ -1243,7 +1165,6 @@ r.players[r.turn] !== p ||
 r.turnDone
 )
 return;
-
 
 r.held =
 r.held.map(
@@ -1256,7 +1177,6 @@ return;
 
 }
 
-
 if(m.type === 'agree'){
 
 if(
@@ -1267,7 +1187,6 @@ r.turnDone
 )
 return;
 
-
 finishTurn(r);
 
 broadcast(r);
@@ -1275,7 +1194,6 @@ broadcast(r);
 return;
 
 }
-
 
 if(m.type === 'chat'){
 
@@ -1285,7 +1203,6 @@ m.message || ''
 )
 .trim()
 .slice(0,200);
-
 
 if(text){
 
@@ -1308,7 +1225,6 @@ message:text
 }
 
 }
-
 
 const server =
 http.createServer(
@@ -1333,7 +1249,6 @@ rooms:rooms.size
 
 }
 
-
 res.writeHead(
 200,
 {
@@ -1347,12 +1262,10 @@ res.end(html);
 }
 );
 
-
 const wss =
 new WebSocket.Server({
 server
 });
-
 
 wss.on(
 'connection',
@@ -1382,7 +1295,6 @@ message:'Ongeldig bericht.'
 
 });
 
-
 ws.on(
 'close',
 () => {
@@ -1393,15 +1305,12 @@ rooms.get(ws.room);
 if(!r)
 return;
 
-
 r.clients.delete(ws);
-
 
 const i =
 r.players.findIndex(
 p => p.ws === ws
 );
-
 
 if(i >= 0){
 
@@ -1410,14 +1319,12 @@ r.players[i].name;
 
 r.players.splice(i,1);
 
-
 if(r.players.length === 0){
 
 rooms.delete(r.code);
 return;
 
 }
-
 
 if(
 r.turn >=
@@ -1427,7 +1334,6 @@ r.players.length
 r.turn = 0;
 
 }
-
 
 r.message =
 name +
@@ -1443,7 +1349,6 @@ broadcast(r);
 
 }
 );
-
 
 server.listen(
 PORT,
