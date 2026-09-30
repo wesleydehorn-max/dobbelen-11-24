@@ -1,47 +1,509 @@
-const http=require('http'),crypto=require('crypto'),zlib=require('zlib');
-const PORT=process.env.PORT||10000,rooms=new Map();
-const HTML=zlib.gunzipSync(Buffer.from('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','base64')).toString('utf8');
-const id=()=>crypto.randomBytes(12).toString('hex');
-const rnd=()=>1+Math.floor(Math.random()*6);
-const active=r=>r.players.filter(p=>p.active);
-const find=(r,t)=>r.players.find(p=>p.token===t);
-const roomCode=()=>{let c;do c=crypto.randomBytes(2).toString('hex').toUpperCase();while(rooms.has(c));return c};
-function reply(res,status,obj){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','Access-Control-Allow-Origin':'*'});res.end(JSON.stringify(obj))}
-function same(a){return a.length===5&&a.every(x=>x===a[0])}
-const earn={5:6,6:5,7:4,8:3,9:2,10:1,25:1,26:2,27:3,28:4,29:5,30:6};
-const payMap={12:1,13:2,14:3,15:4,16:5,17:6,18:6,19:5,20:4,21:3,22:2,23:1};
-function target(dir,sum){return (dir==='earn'?earn:payMap)[sum]||0}
-function transfer(r,pid,amount){const ps=active(r),me=ps.find(p=>p.id===pid);if(!me)return;ps.forEach(p=>{if(p.id!==pid){me.money=+(me.money+amount).toFixed(2);p.money=+(p.money-amount).toFixed(2)}})}
-function next(r){const ps=active(r);if(!ps.length)return;let i=ps.findIndex(p=>p.id===r.turn);const n=ps[(i+1+ps.length)%ps.length];r.turn=n.id;r.phase='main';r.dice=[1,1,1,1,1];r.held=[false,false,false,false,false];r.rolled=false;r.target=0;r.targetHeld=[false,false,false,false,false];r.direction='';r.result='';r.undoHold=null;r.snapshot=null;r.message=n.name+' is aan de beurt.';r.rev++}
-function start(r){const ps=active(r);if(ps.length<2)throw Error('Minimaal 2 spelers nodig.');let rolls={},max=0;ps.forEach(p=>{rolls[p.id]=rnd();max=Math.max(max,rolls[p.id])});let tied=ps.filter(p=>rolls[p.id]===max);while(tied.length>1){max=0;tied.forEach(p=>{rolls[p.id]=rnd();max=Math.max(max,rolls[p.id])});tied=tied.filter(p=>rolls[p.id]===max)}const w=tied[0];r.opening=rolls;r.turn=w.id;r.phase='main';r.dice=[1,1,1,1,1];r.held=[false,false,false,false,false];r.rolled=false;r.target=0;r.targetHeld=[false,false,false,false,false];r.direction='';r.result='';r.undoHold=null;r.snapshot=null;r.message='Startworp: '+w.name+' begint.';r.rev++}
-function publicState(r,p){return{rev:r.rev,code:r.code,phase:r.phase,players:r.players.map(x=>({id:x.id,name:x.name,money:x.money,admin:x.admin,active:x.active})),turn:r.turn,dice:r.dice,held:r.held,rolled:r.rolled,target:r.target,targetHeld:r.targetHeld,direction:r.direction,result:r.result,message:r.message,chat:r.chat,opening:r.opening,undoHold:!!r.undoHold,snapshot:!!r.snapshot,me:p.id}}
-function action(r,p,b){
- if(!p||!p.active)throw Error('Speler is niet actief.');
- const a=b.action;
- if(a==='chat'){const t=String(b.text||'').trim().slice(0,200);if(t){r.chat.push({name:p.name,text:t});r.chat=r.chat.slice(-50);r.rev++}return}
- if(a==='start'){if(!p.admin)throw Error('Alleen de beheerder kan starten.');if(r.phase!=='lobby')throw Error('Het spel is al gestart.');start(r);return}
- if(a==='newGame'){if(!p.admin)throw Error('Alleen de beheerder.');r.phase='lobby';r.turn=null;r.dice=[1,1,1,1,1];r.held=[false,false,false,false,false];r.rolled=false;r.target=0;r.targetHeld=[false,false,false,false,false];r.direction='';r.result='';r.undoHold=null;r.snapshot=null;r.opening=null;r.players.forEach(x=>{x.money=100;x.active=true});r.message='Nieuwe ronde. Wacht op spelers.';r.rev++;return}
- if(a==='pause'||a==='remove'){if(!p.admin)throw Error('Alleen de beheerder.');const x=r.players.find(q=>q.id===b.id);if(!x||x.admin)throw Error('Ongeldige speler.');if(a==='pause')x.active=!x.active;else x.active=false;if(r.turn===x.id)next(r);r.rev++;return}
- if(r.turn!==p.id)throw Error('Niet jouw beurt.');
- if(a==='roll'){if(r.phase!=='main')throw Error('Je kunt nu niet gooien.');if(r.rolled&&!r.held.some(Boolean))throw Error('Zet eerst minimaal 1 dobbelsteen vast.');if(r.rolled&&r.held.every(Boolean))throw Error('Alle dobbelstenen staan al vast.');for(let i=0;i<5;i++)if(!r.held[i])r.dice[i]=rnd();r.rolled=true;r.message=p.name+' heeft gegooid.';r.result='';r.rev++;return}
- if(a==='hold'){if(r.phase!=='main'||!r.rolled)throw Error('Gooi eerst.');const i=Number(b.index);if(i<0||i>4)throw Error('Ongeldige dobbelsteen.');r.undoHold={dice:[...r.dice],held:[...r.held]};r.held[i]=!r.held[i];r.message=r.held[i]?'Dobbelsteen vastgezet.':'Dobbelsteen losgemaakt.';r.rev++;return}
- if(a==='accept'){if(r.phase!=='main'||!r.rolled)throw Error('Gooi eerst.');if(!r.held.some(Boolean))throw Error('Zet minimaal 1 dobbelsteen vast.');const sum=r.dice.reduce((a,b)=>a+b,0);r.snapshot={phase:r.phase,dice:[...r.dice],held:[...r.held],rolled:r.rolled,target:r.target,targetHeld:[...r.targetHeld],direction:r.direction,result:r.result,money:r.players.map(x=>({id:x.id,money:x.money}))};if(sum===11||sum===24){transfer(r,p.id,-0.50);r.result=sum+': BETALEN €0,50';r.message=r.result;r.rev++;setTimeout(()=>{if(rooms.has(r.code)&&r.turn===p.id)next(r)},650);return}const dir=(sum<11||sum>24)?'earn':'pay';const tar=same(r.dice)?6:target(dir,sum);if(!tar){r.snapshot=null;throw Error('Deze combinatie is niet geldig.')}r.phase=dir;r.direction=dir;r.target=tar;r.targetHeld=[false,false,false,false,false];r.held=[false,false,false,false,false];r.result=(dir==='earn'?'VERDIENEN: ':'BETALEN: ')+tar+"'EN";r.message=p.name+' moet '+tar+"'en gooien.";r.rev++;return}
- if(a==='undoHold'){if(!r.undoHold)throw Error('Geen vastzetting om terug te zetten.');r.dice=[...r.undoHold.dice];r.held=[...r.undoHold.held];r.undoHold=null;r.message='Laatste vastzetting teruggedraaid.';r.rev++;return}
- if(a==='undoAccept'){if(!r.snapshot)throw Error('Geen akkoord om terug te zetten.');const s=r.snapshot;r.phase=s.phase;r.dice=[...s.dice];r.held=[...s.held];r.rolled=s.rolled;r.target=s.target;r.targetHeld=[...s.targetHeld];r.direction=s.direction;r.result=s.result;s.money.forEach(m=>{const q=r.players.find(z=>z.id===m.id);if(q)q.money=m.money});r.snapshot=null;r.message='Laatste akkoord teruggedraaid.';r.rev++;return}
- if(a==='targetRoll'){if(r.phase!=='earn'&&r.phase!=='pay')throw Error('Je kunt nu niet gooien.');if(r.targetHeld.every(Boolean))r.targetHeld=[false,false,false,false,false];let hits=0;for(let i=0;i<5;i++)if(!r.targetHeld[i]){r.dice[i]=rnd();if(r.dice[i]===r.target){r.targetHeld[i]=true;hits++}}if(!hits){r.message='Geen nieuwe '+r.target+'. Beurt voorbij.';r.rev++;setTimeout(()=>{if(rooms.has(r.code)&&(r.phase==='earn'||r.phase==='pay'))next(r)},650);return}const amount=hits*r.target*0.5;transfer(r,p.id,r.phase==='earn'?amount:-amount);r.message=(r.phase==='earn'?'VERDIEND: ':'BETAALD: ')+'€'+amount.toFixed(2).replace('.',',');r.rev++;return}
- throw Error('Onbekende actie.');
+const http=require('http'),crypto=require('crypto');
+const PORT=process.env.PORT||10000,rooms=new Map(),uid=()=>crypto.randomBytes(8).toString('hex'),roll=()=>1+Math.floor(Math.random()*6),act=r=>r.p.filter(x=>x.on),find=(r,t)=>r.p.find(x=>x.t===t);
+
+const HTML=`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>🎲 DOBBELEN 11/24</title><style>
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#65001b,#17000d 40%,#050506);color:white;font-family:Arial}.wrap{max-width:900px;margin:auto;padding:8px 10px 80px}.logo{text-align:center;color:#ffd84d;font-size:clamp(32px,8vw,55px);font-weight:900;text-shadow:0 0 12px #f24;margin:12px}.tag{text-align:center;color:#ffe9a0;letter-spacing:3px;font-size:11px}.p{background:linear-gradient(145deg,#172338,#080e18);border:2px solid #d6a82c;border-radius:18px;padding:15px;margin:12px 0}.title{text-align:center;color:#ffd84d;font-size:23px;font-weight:900;margin-bottom:10px}input{width:100%;padding:13px;margin:4px 0;background:#050a12;color:#fff;border:1px solid #667080;border-radius:11px;font-size:17px}button{padding:13px 16px;margin:4px;border:0;border-radius:11px;background:#315b9f;color:white;font-weight:900;font-size:15px}.g{background:#119653}.o{background:#b96b12}.r{background:#9d202d}.gold{background:#a97910}.row{display:flex;gap:5px;flex-wrap:wrap}.row>*{flex:1;min-width:130px}.players{display:grid;grid-template-columns:repeat(2,1fr);gap:7px}.pl{background:#0b1522;border:1px solid #344052;border-radius:11px;padding:9px;text-align:center}.cur{outline:3px solid #ffd84d}.money{font-size:19px}.code{text-align:center;color:#ffd84d;font-size:38px;font-weight:900;letter-spacing:7px}.invite{word-break:break-all;background:#05070b;padding:9px;border-radius:9px;color:#ffe49a;font-size:12px}.table{background:radial-gradient(circle,#147a49,#04351f);border:6px solid #a77e25;border-radius:22px;padding:25px 8px}.dice{display:flex;justify-content:center;gap:10px;flex-wrap:wrap}.die{width:68px;height:68px;border-radius:14px;background:linear-gradient(145deg,#ef3838,#900606);border:3px solid white;position:relative;box-shadow:0 5px 10px #000;cursor:pointer}.held{border:5px solid #39ff88;box-shadow:0 0 12px #39ff88;transform:translateY(-6px)}.held:after{content:'VAST';position:absolute;bottom:-24px;left:0;right:0;text-align:center;color:#39ff88;font-size:11px;font-weight:900}.pip{position:absolute;width:13px;height:13px;border-radius:50%;background:#fff}.tl{left:9px;top:9px}.tc{left:50%;top:9px;transform:translateX(-50%)}.tr{right:9px;top:9px}.ml{left:9px;top:50%;transform:translateY(-50%)}.mc{left:50%;top:50%;transform:translate(-50%,-50%)}.mr{right:9px;top:50%;transform:translateY(-50%)}.bl{left:9px;bottom:9px}.bc{left:50%;bottom:9px;transform:translateX(-50%)}.br{right:9px;bottom:9px}.banner{text-align:center;padding:12px;border:3px solid #ffd84d;border-radius:13px;font-size:25px;font-weight:900;margin:8px}.earn{border-color:#39ff88;color:#7affb1;background:#073c25}.chat{height:160px;overflow:auto;background:#05070b;padding:8px;border-radius:9px}.msg{padding:4px;border-bottom:1px solid #ffffff18}.msg b{color:#ffd84d}.rule{position:fixed;left:8px;bottom:8px;background:#101b2b;border:1px solid #ffd84d;border-radius:10px;padding:8px;z-index:5}@media(max-width:500px){.die{width:61px;height:61px}.pip{width:11px;height:11px}}
+</style><body><div class="wrap"><div class="logo">🎲 DOBBELEN 11/24</div><div class="tag">ONLINE MULTIPLAYER</div><div id="app"></div></div><div class="rule">🚩 Regel: 5 dezelfde = 6️⃣ verdienen</div><script>
+let tok=sessionStorage.getItem('dtoken')||'',S=null,rev=-1,busy=0,room=new URLSearchParams(location.search).get('room')||'',app=document.getElementById('app');
+const esc=s=>String(s??'').replace(/[&<>"']/g,x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x])),eur=x=>'€'+(+x).toFixed(2).replace('.',','),$=id=>document.getElementById(id);
+async function api(u,b){let o={headers:{'Content-Type':'application/json','X-Token':tok}};if(b){o.method='POST';o.body=JSON.stringify(b)}let r=await fetch(u,o),j=await r.json();if(!r.ok)throw Error(j.error);return j}
+
+function home(){
+app.innerHTML='<div class="p"><div class="title">🎲 NIEUW SPEL</div><input id="n" placeholder="Jouw naam" maxlength="20"><button class="g" onclick="make()">🎲 SPEL MAKEN</button></div><div class="p"><div class="title">OF MEEDOEN</div><input id="jn" placeholder="Jouw naam" maxlength="20"><div class="row"><input id="c" placeholder="Spelcode" maxlength="4"><button onclick="join()">MEEDOEN</button></div></div>';
+if(room)$('c').value=room
 }
-const server=http.createServer((req,res)=>{
- const u=new URL(req.url,'http://x');
- if(req.method==='OPTIONS'){res.writeHead(204,{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'Content-Type,X-Token','Access-Control-Allow-Methods':'GET,POST,OPTIONS'});return res.end()}
- if(u.pathname==='/'&&req.method==='GET'){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'});return res.end(HTML)}
- if(!u.pathname.startsWith('/api/')){res.writeHead(404);return res.end('Not found')}
- let body='';req.on('data',d=>body+=d);req.on('end',()=>{
-  let b={};try{b=JSON.parse(body||'{}')}catch(e){}
-  if(u.pathname==='/api/create'&&req.method==='POST'){const name=String(b.name||'').trim().slice(0,20);if(!name)return reply(res,400,{error:'Vul eerst je naam in.'});const c=roomCode(),t=id();rooms.set(c,{code:c,rev:1,phase:'lobby',players:[{id:id(),token:t,name,money:100,admin:true,active:true}],turn:null,dice:[1,1,1,1,1],held:[false,false,false,false,false],rolled:false,target:0,targetHeld:[false,false,false,false,false],direction:'',result:'',message:'Wacht op spelers.',chat:[],opening:null,undoHold:null,snapshot:null});return reply(res,200,{code:c,token:t})}
-  if(u.pathname==='/api/join'&&req.method==='POST'){const c=String(b.code||'').trim().toUpperCase(),name=String(b.name||'').trim().slice(0,20),r=rooms.get(c);if(!r)return reply(res,404,{error:'Deze kamer bestaat niet.'});if(r.phase!=='lobby')return reply(res,400,{error:'Het spel is al gestart.'});if(active(r).length>=4)return reply(res,400,{error:'Maximaal 4 spelers.'});if(!name)return reply(res,400,{error:'Vul eerst je naam in.'});const t=id();r.players.push({id:id(),token:t,name,money:100,admin:false,active:true});r.message=name+' is de kamer binnengekomen.';r.rev++;return reply(res,200,{code:c,token:t})}
-  const t=req.headers['x-token']||'';for(const r of rooms.values()){const p=find(r,t);if(!p)continue;if(u.pathname==='/api/state'&&req.method==='GET')return reply(res,200,{state:publicState(r,p)});if(u.pathname==='/api/action'&&req.method==='POST'){try{action(r,p,b);return reply(res,200,{ok:true})}catch(e){return reply(res,400,{error:e.message})}}}
-  return reply(res,401,{error:'Sessie verlopen.'});
- });
+
+async function make(){
+try{
+let n=$('n').value.trim();
+if(!n)throw Error('Vul je naam in.');
+let x=await api('/api/create',{name:n});
+tok=x.token;
+sessionStorage.setItem('dtoken',tok);
+location.search='?room='+x.code
+}catch(e){alert(e.message)}
+}
+
+async function join(){
+try{
+let n=$('jn').value.trim(),c=$('c').value.trim().toUpperCase();
+if(!n||!c)throw Error('Vul naam en spelcode in.');
+let x=await api('/api/join',{name:n,code:c});
+tok=x.token;
+sessionStorage.setItem('dtoken',tok);
+location.search='?room='+x.code
+}catch(e){alert(e.message)}
+}
+
+function lobby(){
+let me=S.p.find(x=>x.id===S.me),a=me.admin,u=location.origin+'/?room='+S.code;
+app.innerHTML='<div class="p"><div class="title">🎰 WACHTRUIMTE</div><div class="code">'+S.code+'</div>'+(a?'<div class="invite">'+u+'</div><button class="gold" onclick="copy()">🔗 LINK KOPIËREN</button>':'<p style="text-align:center">Wacht op de beheerder.</p>')+'</div><div class="p"><div class="title">👥 SPELERS</div><div class="players" id="ps"></div>'+(a?'<div style="text-align:center"><button class="g" onclick="go(\'start\')">🎲 START SPEL</button></div>':'')+'</div>';
+
+S.p.forEach(x=>{
+let d=document.createElement('div');
+d.className='pl';
+d.innerHTML='<b>'+esc(x.name)+'</b><div class="money">'+eur(x.money)+'</div>'+(x.admin?'👑':'🟢');
+if(a&&!x.admin){
+let b=document.createElement('button');
+b.className=x.on?'o':'g';
+b.textContent=x.on?'⏸️ PAUZE':'🟢 ACTIEF';
+b.onclick=()=>go('pause',{id:x.id});
+d.append(b);
+let z=document.createElement('button');
+z.className='r';
+z.textContent='❌';
+z.onclick=()=>go('remove',{id:x.id});
+d.append(z)
+}
+$('ps').append(d)
+})
+}
+
+const P={1:['mc'],2:['tl','br'],3:['tl','mc','br'],4:['tl','tr','bl','br'],5:['tl','tr','mc','bl','br'],6:['tl','tr','ml','mr','bl','br']};
+
+function die(v,i,h){
+return '<div class="die '+(h?'held':'')+'" onclick="hold('+i+')">'+P[v].map(x=>'<i class="pip '+x+'"></i>').join('')+'</div>'
+}
+
+function game(){
+let me=S.p.find(x=>x.id===S.me),mine=me.id===S.turn,cur=S.p.find(x=>x.id===S.turn);
+let bn=S.phase==='earn'?'<div class="banner earn">VERDIENEN: '+S.target+"'EN</div>":S.phase==='pay'?'<div class="banner">BETALEN: '+S.target+"'EN</div>":S.result?'<div class="banner">'+esc(S.result)+'</div>':'';
+
+app.innerHTML='<div class="p"><div class="title">🎯 '+esc(cur?.name||'')+' IS AAN DE BEURT</div>'+bn+'<div style="text-align:center">'+esc(S.msg||'')+'</div><div class="table"><div class="dice">'+S.d.map((v,i)=>die(v,i,S.h[i]||(S.phase!=='main'&&S.th[i]))).join('')+'</div></div><div id="ac" style="text-align:center"></div></div><div class="p"><div class="title">👥 SPELERS</div><div class="players" id="ps"></div></div><div class="p"><div class="title">💬 CHAT</div><div class="chat" id="chat">'+S.chat.map(m=>'<div class="msg"><b>'+esc(m.name)+':</b> '+esc(m.text)+'</div>').join('')+'</div><div class="row"><input id="ci" placeholder="Typ een bericht..." maxlength="200"><button onclick="chat()">VERSTUUR</button></div></div>';
+
+S.p.forEach(x=>{
+let d=document.createElement('div');
+d.className='pl '+(x.id===S.turn?'cur':'');
+d.innerHTML='<b>'+esc(x.name)+'</b><div class="money">'+eur(x.money)+'</div>'+(x.on?'🟢':'⏸️')+(x.admin?' 👑':'');
+$('ps').append(d)
 });
-server.listen(PORT,'0.0.0.0',()=>console.log('Dobbelen 11/24 draait op poort '+PORT));
+
+let ac=$('ac');
+
+if(mine&&S.phase==='main'){
+let b=document.createElement('button');
+b.className='o';
+b.textContent=S.rolled?'🎲 OPNIEUW GOOIEN':'🎲 BEGIN WORP';
+b.onclick=()=>go('roll');
+ac.append(b);
+
+if(S.rolled){
+let q=document.createElement('button');
+q.textContent='AKKOORD';
+q.onclick=()=>go('accept');
+ac.append(q);
+
+if(S.undo){
+let u=document.createElement('button');
+u.className='gold';
+u.textContent='↩️ LAATSTE VASTZETTING TERUG';
+u.onclick=()=>go('undoHold');
+ac.append(u)
+}
+
+if(S.snap){
+let u=document.createElement('button');
+u.className='gold';
+u.textContent='↩️ AKKOORD TERUG';
+u.onclick=()=>go('undoAccept');
+ac.append(u)
+}
+}
+}else if(mine&&(S.phase==='earn'||S.phase==='pay')){
+let b=document.createElement('button');
+b.className='o';
+b.textContent='🎲 OPNIEUW GOOIEN';
+b.onclick=()=>go('targetRoll');
+ac.append(b)
+}
+
+$('chat').scrollTop=99999
+}
+
+async function hold(i){if(S.phase==='main'&&S.rolled)await go('hold',{i})}
+async function chat(){let x=$('ci'),t=x.value.trim();if(t){x.value='';await go('chat',{text:t})}}
+async function copy(){try{await navigator.clipboard.writeText(location.href);alert('Link gekopieerd!')}catch(e){prompt('Kopieer deze link:',location.href)}}
+
+async function go(action,data){
+if(busy)return;
+busy=1;
+try{
+await api('/api/action',Object.assign({action},data||{}));
+await get(1)
+}catch(e){alert(e.message)}
+busy=0
+}
+
+async function get(force){
+if(!tok){home();return}
+try{
+let x=await api('/api/state');
+if(force||x.s.rev!==rev){
+S=x.s;
+rev=S.rev;
+S.phase==='lobby'?lobby():game()
+}
+}catch(e){
+tok='';
+sessionStorage.removeItem('dtoken');
+home()
+}
+}
+
+home();
+if(tok)get(1);
+setInterval(()=>tok&&!busy&&get(0),700);
+</script></body>`;
+
+const earn={5:6,6:5,7:4,8:3,9:2,10:1,25:1,26:2,27:3,28:4,29:5,30:6};
+const pay={12:1,13:2,14:3,15:4,16:5,17:6,18:6,19:5,20:4,21:3,22:2,23:1};
+const same=a=>a.length===5&&a.every(x=>x===a[0]);
+const target=(d,s)=>(d==='earn'?earn:pay)[s]||0;
+
+function money(r,id,n){
+let ps=act(r),m=ps.find(x=>x.id===id);
+if(!m)return;
+ps.forEach(x=>{
+if(x.id!==id){
+m.money=+(m.money+n).toFixed(2);
+x.money=+(x.money-n).toFixed(2)
+}
+})
+}
+
+function next(r){
+let ps=act(r);
+if(!ps.length)return;
+let i=ps.findIndex(x=>x.id===r.turn);
+r.turn=ps[(i+1)%ps.length].id;
+r.phase='main';
+r.d=[1,1,1,1,1];
+r.h=[0,0,0,0,0];
+r.th=[0,0,0,0,0];
+r.rolled=0;
+r.target=0;
+r.result='';
+r.msg='Nieuwe beurt.';
+r.undo=null;
+r.snap=null;
+r.rev++
+}
+
+function start(r){
+let ps=act(r),best=0,w=[];
+if(ps.length<2)throw Error('Minimaal 2 spelers nodig.');
+
+while(w.length!==1){
+best=0;
+w=[];
+ps.forEach(x=>{
+let n=roll();
+if(n>best){best=n;w=[x]}
+else if(n===best)w.push(x)
+})
+}
+
+r.turn=w[0].id;
+r.phase='main';
+r.d=[1,1,1,1,1];
+r.h=[0,0,0,0,0];
+r.th=[0,0,0,0,0];
+r.rolled=0;
+r.msg=w[0].name+' begint.';
+r.rev++
+}
+
+function pub(r,p){
+return{
+rev:r.rev,
+code:r.code,
+phase:r.phase,
+p:r.p.map(x=>({id:x.id,name:x.name,money:x.money,admin:x.admin,on:x.on})),
+turn:r.turn,
+d:r.d,
+h:r.h,
+th:r.th,
+rolled:r.rolled,
+target:r.target,
+result:r.result,
+msg:r.msg,
+chat:r.chat,
+undo:!!r.undo,
+snap:!!r.snap,
+me:p.id
+}
+}
+
+function action(r,p,b){
+if(!p||!p.on)throw Error('Speler is niet actief.');
+
+let a=b.action;
+
+if(a==='chat'){
+let t=String(b.text||'').trim().slice(0,200);
+if(t){
+r.chat.push({name:p.name,text:t});
+r.chat=r.chat.slice(-40);
+r.rev++
+}
+return
+}
+
+if(a==='start'){
+if(!p.admin)throw Error('Alleen de beheerder kan starten.');
+if(r.phase!=='lobby')throw Error('Het spel is al gestart.');
+start(r);
+return
+}
+
+if(a==='pause'||a==='remove'){
+if(!p.admin)throw Error('Alleen de beheerder.');
+let x=r.p.find(q=>q.id===b.id);
+if(!x||x.admin)throw Error('Ongeldige speler.');
+x.on=a==='pause'?!x.on:false;
+if(r.turn===x.id)next(r);
+r.rev++;
+return
+}
+
+if(r.turn!==p.id)throw Error('Niet jouw beurt.');
+
+if(a==='roll'){
+if(r.phase!=='main')throw Error('Je kunt nu niet gooien.');
+if(r.rolled&&!r.h.some(Boolean))throw Error('Zet eerst 1 dobbelsteen vast.');
+if(r.rolled&&r.h.every(Boolean))throw Error('Alle dobbelstenen staan vast.');
+
+for(let i=0;i<5;i++)if(!r.h[i])r.d[i]=roll();
+
+r.rolled=1;
+r.rev++;
+return
+}
+
+if(a==='hold'){
+if(!r.rolled)throw Error('Gooi eerst.');
+let i=+b.i;
+if(i<0||i>4)throw Error('Ongeldige dobbelsteen.');
+
+r.undo={d:[...r.d],h:[...r.h]};
+r.h[i]=!r.h[i];
+r.rev++;
+return
+}
+
+if(a==='accept'){
+if(!r.rolled||!r.h.some(Boolean))throw Error('Zet minimaal 1 dobbelsteen vast.');
+
+let s=r.d.reduce((a,b)=>a+b,0);
+
+r.snap={
+d:[...r.d],
+h:[...r.h],
+money:r.p.map(x=>[x.id,x.money])
+};
+
+if(s===11||s===24){
+money(r,p.id,-.5);
+r.result=s+': BETALEN €0,50';
+r.rev++;
+setTimeout(()=>r.turn===p.id&&next(r),600);
+return
+}
+
+let dir=s<11||s>24?'earn':'pay';
+let t=same(r.d)?6:target(dir,s);
+
+if(!t){
+r.snap=null;
+throw Error('Deze combinatie is niet geldig.')
+}
+
+r.phase=dir;
+r.target=t;
+r.th=[0,0,0,0,0];
+r.h=[0,0,0,0,0];
+r.result=(dir==='earn'?'VERDIENEN: ':'BETALEN: ')+t+"'EN";
+r.rev++;
+return
+}
+
+if(a==='undoHold'){
+if(!r.undo)throw Error('Geen vastzetting.');
+r.d=[...r.undo.d];
+r.h=[...r.undo.h];
+r.undo=null;
+r.rev++;
+return
+}
+
+if(a==='undoAccept'){
+if(!r.snap)throw Error('Geen akkoord.');
+
+r.snap.money.forEach(z=>{
+let x=r.p.find(q=>q.id===z[0]);
+if(x)x.money=z[1]
+});
+
+r.d=r.snap.d;
+r.h=r.snap.h;
+r.phase='main';
+r.rolled=1;
+r.result='';
+r.snap=null;
+r.rev++;
+return
+}
+
+if(a==='targetRoll'){
+if(r.th.every(Boolean))r.th=[0,0,0,0,0];
+
+let hits=0;
+
+for(let i=0;i<5;i++)if(!r.th[i]){
+r.d[i]=roll();
+if(r.d[i]===r.target){
+r.th[i]=1;
+hits++
+}
+}
+
+if(!hits){
+r.msg='Geen nieuwe '+r.target+'. Beurt voorbij.';
+r.rev++;
+setTimeout(()=>next(r),600);
+return
+}
+
+let n=hits*r.target*.5;
+money(r,p.id,r.phase==='earn'?n:-n);
+r.msg=(r.phase==='earn'?'VERDIEND ':'BETAALD ')+eur(n);
+r.rev++;
+return
+}
+
+throw Error('Onbekende actie.')
+}
+
+const server=http.createServer((q,s)=>{
+let u=new URL(q.url,'http://x');
+
+if(q.method==='OPTIONS'){
+s.writeHead(204,{
+'Access-Control-Allow-Origin':'*',
+'Access-Control-Allow-Headers':'Content-Type,X-Token'
+});
+return s.end()
+}
+
+if(u.pathname==='/'&&q.method==='GET'){
+s.writeHead(200,{
+'Content-Type':'text/html;charset=utf-8',
+'Cache-Control':'no-store'
+});
+return s.end(HTML)
+}
+
+let body='';
+q.on('data',x=>body+=x);
+
+q.on('end',()=>{
+let b={};
+try{b=JSON.parse(body||'{}')}catch(e){}
+
+if(u.pathname==='/api/create'){
+let n=String(b.name||'').trim();
+if(!n)return out(s,400,{error:'Vul je naam in.'});
+
+let c;
+do c=crypto.randomBytes(2).toString('hex').toUpperCase();
+while(rooms.has(c));
+
+let t=uid();
+let p={
+id:uid(),
+t,
+name:n.slice(0,20),
+money:100,
+admin:1,
+on:1
+};
+
+rooms.set(c,{
+code:c,
+rev:1,
+phase:'lobby',
+p:[p],
+turn:null,
+d:[1,1,1,1,1],
+h:[0,0,0,0,0],
+th:[0,0,0,0,0],
+rolled:0,
+target:0,
+result:'',
+msg:'Wacht op spelers.',
+chat:[],
+undo:null,
+snap:null
+});
+
+return out(s,200,{code:c,token:t})
+}
+
+if(u.pathname==='/api/join'){
+let c=String(b.code||'').toUpperCase();
+let r=rooms.get(c);
+let n=String(b.name||'').trim();
+
+if(!r)return out(s,404,{error:'Kamer bestaat niet.'});
+if(r.phase!=='lobby')return out(s,400,{error:'Spel is al gestart.'});
+if(act(r).length>=4)return out(s,400,{error:'Maximaal 4 spelers.'});
+if(!n)return out(s,400,{error:'Vul je naam in.'});
+
+let t=uid();
+
+r.p.push({
+id:uid(),
+t,
+name:n.slice(0,20),
+money:100,
+admin:0,
+on:1
+});
+
+r.rev++;
+
+return out(s,200,{code:c,token:t})
+}
+
+let t=q.headers['x-token']||'';
+
+for(let r of rooms.values()){
+let p=find(r,t);
+if(!p)continue;
+
+if(u.pathname==='/api/state')
+return out(s,200,{s:pub(r,p)});
+
+if(u.pathname==='/api/action')
+try{
+action(r,p,b);
+return out(s,200,{ok:1})
+}catch(e){
+return out(s,400,{error:e.message})
+}
+}
+
+out(s,401,{error:'Sessie verlopen.'})
+})
+});
+
+function out(s,n,j){
+s.writeHead(n,{
+'Content-Type':'application/json',
+'Cache-Control':'no-store',
+'Access-Control-Allow-Origin':'*'
+});
+s.end(JSON.stringify(j))
+}
+
+server.listen(PORT,'0.0.0.0',()=>console.log('Dobbelen 11/24 online '+PORT));
