@@ -430,7 +430,39 @@ function goHome(){
   state=null;
   lastRev=-1;
 
-  home();
+  function home(){
+
+  if(room){
+
+    app.innerHTML=
+      '<div class="card center">'+
+        '<h2>🎲 JE BENT UITGENODIGD</h2>'+
+        '<p>Vul alleen je naam in om mee te doen.</p>'+
+        '<div class="small">Spelcode</div>'+
+        '<div class="code">'+esc(room)+'</div>'+
+        '<input id="joinName" maxlength="20" placeholder="Jouw naam" autocomplete="name">'+
+        '<button class="green" onclick="joinFromInvite()">'+
+          'MEEDOEN MET DIT SPEL'+
+        '</button>'+
+      '</div>';
+
+    return;
+  }
+
+  app.innerHTML=
+    '<div class="card center">'+
+      '<h2>NIEUW SPEL</h2>'+
+      '<input id="name" maxlength="20" placeholder="Jouw naam" autocomplete="name">'+
+      '<button class="green" onclick="create()">SPEL MAKEN</button>'+
+    '</div>'+
+
+    '<div class="card center">'+
+      '<h2>OF MEEDOEN</h2>'+
+      '<input id="joinName" maxlength="20" placeholder="Jouw naam" autocomplete="name">'+
+      '<input id="joinCode" maxlength="6" placeholder="Spelcode" autocomplete="off">'+
+      '<button onclick="join()">MEEDOEN</button>'+
+    '</div>';
+}
 }
 
 function create(){
